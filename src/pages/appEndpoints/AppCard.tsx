@@ -5,7 +5,7 @@
  * data: everything comes from the {@link AppView} handed to it.
  */
 import React from 'react';
-import { LINK_LABEL } from '../../k8s/forecastleApp';
+import { LINK_LABEL, SOURCE_LABEL } from '../../k8s/publishedApp';
 import { EvoCloudPalette } from '../../palette';
 import {
   ChevronIcon,
@@ -32,12 +32,15 @@ export function AppCard({
   dense,
   expanded,
   onToggle,
+  onOpen,
 }: {
   C: EvoCloudPalette;
   app: AppView;
   dense: boolean;
   expanded: boolean;
   onToggle: () => void;
+  /** Given, the header opens the side panel. Absent, the card only expands. */
+  onOpen?: () => void;
 }) {
   const url = app.link.url;
 
@@ -52,7 +55,29 @@ export function AppCard({
         transition: 'border-color 140ms ease, background 140ms ease',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: dense ? '10px 12px' : '14px 14px 13px' }}>
+      <div
+        {...(onOpen
+          ? {
+              role: 'button' as const,
+              tabIndex: 0,
+              onClick: onOpen,
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpen();
+                }
+              },
+              title: `Open ${app.name}`,
+            }
+          : {})}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          padding: dense ? '10px 12px' : '14px 14px 13px',
+          cursor: onOpen ? 'pointer' : undefined,
+        }}
+      >
         <RemoteIcon C={C} src={app.icon} name={app.name} size={38} />
         <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
@@ -112,7 +137,17 @@ export function AppCard({
           background: C.surfaceSunken,
         }}
       >
-        <Chip C={C}>{app.ns}</Chip>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+          <Chip C={C}>{app.ns}</Chip>
+          {/*
+            Where the app came from. An annotated route and a dedicated resource
+            are edited in completely different places, so this is the first
+            thing you need when the catalog shows something unexpected.
+          */}
+          <Chip C={C} title={`Discovered from ${SOURCE_LABEL[app.source]}`}>
+            {SOURCE_LABEL[app.source]}
+          </Chip>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '2px', flex: 'none' }}>
           <button
             type="button"

@@ -1,16 +1,23 @@
 /**
  * App Endpoints — the catalog of applications published in the cluster.
  *
- * "App Endpoints" is the product name. The data underneath is still Stakater's
- * ForecastleApp custom resource, and the k8s/ modules keep that name because it
- * is the literal API kind; only what the user reads is rebranded.
+ * Apps reach the catalog two ways, and the page shows both:
+ *
+ *   1. A dedicated published-app resource, written on purpose.
+ *   2. An Ingress or HTTPRoute that opted itself in with an annotation. No
+ *      second object exists for these — the route that publishes the app is
+ *      also what describes it.
+ *
+ * The second is the only one that works on a cluster with no operator
+ * installed, which is why a missing CRD is no longer treated as the end of the
+ * page: it is one empty source out of two, not a wall.
  *
  * Layout and interaction come from the supplied design component; that
  * vocabulary now lives in ui/chrome.tsx so the other EvoCloud pages are the
  * same furniture with different data in it.
  *
  * Data is live, watched over Headlamp's websocket. The design's mock health
- * status is gone — see k8s/forecastleApp.ts for why, and what replaced it.
+ * status is gone — see k8s/publishedApp.ts for why, and what replaced it.
  *
  * This file is composition only. Shaping and filtering the data is in
  * appEndpoints/model.ts; drawing it is in appEndpoints/AppCard.tsx and
@@ -18,7 +25,8 @@
  */
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
-import { ForecastleApp, IngressLike } from '../k8s/forecastleApp';
+import { ANNOTATIONS, appsFromAnnotations, HTTPRoute, HTTPRouteLike } from '../k8s/annotatedApps';
+import { AppEndpoint, IngressLike, LegacyPublishedApp } from '../k8s/publishedApp';
 import {
   Code,
   EvoPage,
@@ -30,10 +38,13 @@ import {
   queryError,
   SearchBox,
   SectionHeading,
+  SidePanel,
   usePalette,
+  useSidePanelViable,
   ViewToggle,
 } from '../ui/chrome';
 import { AppCard } from './appEndpoints/AppCard';
+import { AppDetail } from './appEndpoints/AppDetail';
 import { AppTable } from './appEndpoints/AppTable';
 import { buildAppViews, groupApps, groupsOf, namespacesOf } from './appEndpoints/model';
 
@@ -69,18 +80,64 @@ export default function AppEndpoints({
   const [nsFilter, setNsFilter] = React.useState('all');
   const [closed, setClosed] = React.useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
+  /**
+   * Key of the app shown in the side panel, or null for none.
+   *
+   * A key rather than the view itself, so the panel re-reads the live list on
+   * every render instead of pinning a snapshot — an app whose route changes
+   * while the panel is open updates in place, and one that is deleted closes it.
+   */
+  const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
+  const panelViable = useSidePanelViable();
 
-  // No refetchInterval, so Headlamp watches both lists over its websocket and
-  // the page stays current without polling.
-  const appQuery = ForecastleApp.useList();
+  // No refetchInterval, so Headlamp watches every list over its websocket and
+  // the page stays current without polling. Any of the three may 404 — an
+  // absent CRD, a cluster without Gateway API — which reads as "none of those"
+  // rather than as a failure; see the error handling below.
+  const appQuery = AppEndpoint.useList();
+  const legacyQuery = LegacyPublishedApp.useList();
   const ingressQuery = K8s.ResourceClasses.Ingress.useList();
+  const routeQuery = HTTPRoute.useList();
 
-  const apps = React.useMemo(
-    () => buildAppViews(appQuery.items, ingressQuery.items as unknown as IngressLike[] | null),
-    [appQuery.items, ingressQuery.items]
+  // Headlamp hands back KubeObjects, whose spec lives under jsonData for a
+  // class built from a CRD and directly on the object for a built-in one.
+  // Flattened here so neither the model nor the discovery code has to know.
+  const ingresses = React.useMemo(
+    () =>
+      (ingressQuery.items ?? []).map((i: any) => ({
+        metadata: i.metadata,
+        spec: i.jsonData?.spec ?? i.spec,
+      })) as IngressLike[],
+    [ingressQuery.items]
   );
 
-  console.log({ apps });
+  const httpRoutes = React.useMemo(
+    () =>
+      (routeQuery.items ?? []).map((r: any) => ({
+        metadata: r.metadata,
+        spec: r.jsonData?.spec ?? r.spec,
+      })) as HTTPRouteLike[],
+    [routeQuery.items]
+  );
+
+  const annotated = React.useMemo(
+    () => appsFromAnnotations(ingresses, httpRoutes),
+    [ingresses, httpRoutes]
+  );
+
+  // Order is precedence: the catalog's own resource describes an app before
+  // the legacy kind does, and both before an annotation on its route.
+  const resources = React.useMemo(
+    () => [...(appQuery.items ?? []), ...(legacyQuery.items ?? [])],
+    [appQuery.items, legacyQuery.items]
+  );
+
+  const apps = React.useMemo(
+    () => buildAppViews(resources, ingresses, annotated),
+    [resources, ingresses, annotated]
+  );
+
+  const selected = selectedKey ? apps.find(a => a.key === selectedKey) ?? null : null;
 
   const groupNames = React.useMemo(() => groupsOf(apps), [apps]);
   const namespaces = React.useMemo(() => namespacesOf(apps), [apps]);
@@ -90,22 +147,18 @@ export default function AppEndpoints({
   const shown = groups.reduce((n, g) => n + g.apps.length, 0);
   const filtering = !!filters.query || groupFilter !== 'all' || nsFilter !== 'all';
 
-  const error = firstRealError([appQuery]) ?? queryError(appQuery);
-  const notInstalled = isNotFound(queryError(appQuery));
+  // A 404 on any one list is a source that is not present, not an error: the
+  // CRD may not be installed, or the cluster may have no Gateway API. Only a
+  // real failure — RBAC, a broken connection — should take the page down.
+  const error = firstRealError([appQuery, legacyQuery, ingressQuery, routeQuery]);
+  const loading =
+    appQuery.isLoading || legacyQuery.isLoading || ingressQuery.isLoading || routeQuery.isLoading;
 
   let body: React.ReactNode;
-  if (appQuery.isLoading) {
+  if (loading && apps.length === 0) {
     body = (
-      <Notice C={C} title="Loading applications">
-        Reading ForecastleApp resources from the cluster.
-      </Notice>
-    );
-  } else if (notInstalled) {
-    // Kept explanatory: this one is actionable — something has to be installed.
-    body = (
-      <Notice C={C} title="App Endpoints is not installed on this cluster">
-        No <Code>forecastleapps.forecastle.stakater.com</Code> resource definition was found.
-        Install the operator, then this catalog will populate itself.
+      <Notice C={C} busy title="Loading applications">
+        Reading published apps and annotated routes from the cluster.
       </Notice>
     );
   } else if (error) {
@@ -115,9 +168,15 @@ export default function AppEndpoints({
       </Notice>
     );
   } else if (apps.length === 0) {
-    // The heading says it. Anything more was explaining a resource kind to
-    // someone who just wants to know the list is empty.
-    body = <Notice C={C} title="No applications published yet" />;
+    // Both sources came back empty. Which of the two is even available changes
+    // what there is to say, so say only the part that is actionable: with no
+    // CRD the annotation is the whole answer, and it works either way.
+    body = (
+      <Notice C={C} title="No applications published yet">
+        Annotate an Ingress or HTTPRoute with <Code>{ANNOTATIONS.expose}</Code> set to{' '}
+        <Code>true</Code> and it appears here.
+      </Notice>
+    );
   } else if (groups.length === 0) {
     body = (
       <Notice
@@ -154,11 +213,16 @@ export default function AppEndpoints({
                     dense={density === 'compact'}
                     expanded={!!expanded[app.key]}
                     onToggle={() => setExpanded(s => ({ ...s, [app.key]: !s[app.key] }))}
+                    onOpen={panelViable ? () => setSelectedKey(app.key) : undefined}
                   />
                 ))}
               </div>
             ) : (
-              <AppTable C={C} apps={g.apps} />
+              <AppTable
+                C={C}
+                apps={g.apps}
+                onOpen={panelViable ? a => setSelectedKey(a.key) : undefined}
+              />
             ))}
         </section>
       );
@@ -220,15 +284,19 @@ export default function AppEndpoints({
       }
     >
       {body}
-      {/*
-        The Forecastle web-UI strip used to sit here — port-forward controls for
-        reaching Forecastle's own dashboard. Taken off the page: the catalog
-        above is the product, and a panel captioned "optional · the catalog does
-        not need it" was telling the truth about itself.
-
-        appEndpoints/WebUiStrip.tsx is left in place, working, and can be dropped
-        back in with a single line if the forwarding controls are ever wanted.
-      */}
+      <SidePanel
+        C={C}
+        open={!!selected}
+        title={selected?.name ?? ''}
+        subtitle={selected && `${selected.group} · ${selected.ns}`}
+        onClose={() => setSelectedKey(null)}
+      >
+        {selected && (
+          <div style={{ padding: '16px' }}>
+            <AppDetail C={C} app={selected} />
+          </div>
+        )}
+      </SidePanel>
     </EvoPage>
   );
 }

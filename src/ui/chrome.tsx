@@ -1,7 +1,7 @@
 /**
  * Shared page chrome for the EvoCloud pages.
  *
- * The Forecastle catalog was the first page built, and its design set the
+ * The App Endpoints catalog was the first page built, and its design set the
  * house style: the header band with breadcrumb and live badge, the dashed
  * notice block, the folder-headed sections, the mono chips and the source
  * footer. Everything here is that vocabulary lifted out so the GitOps,
@@ -14,6 +14,7 @@ import { Router } from '@kinvolk/headlamp-plugin/lib';
 import { useCluster } from '@kinvolk/headlamp-plugin/lib/k8s';
 import { useTheme } from '@mui/material/styles';
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Link as RouterLink } from 'react-router-dom';
 import { EVOCLOUD_LOGO_PNG } from '../icons/evocloudLogo';
 import { EVOCLOUD_DARK, EVOCLOUD_LIGHT, EvoCloudPalette } from '../palette';
@@ -31,7 +32,12 @@ import { derivePalette, evoCloudThemeActive } from './themePalette';
  */
 const { createRouteURL } = Router;
 
-export const MONO = "'IBM Plex Mono', monospace";
+/**
+ * The face for code, identifiers and numbers. A role, not a brand: it names no
+ * downloaded family, so it resolves to whatever monospace the platform already
+ * has — the same thing Headlamp itself falls back to.
+ */
+export const MONO = 'monospace';
 
 /** Digits that sit in pills or columns must not reflow as counts grow. */
 export const NUMERIC: React.CSSProperties = { fontVariantNumeric: 'tabular-nums' };
@@ -62,18 +68,15 @@ export function usePalette(): EvoCloudPalette {
 /**
  * The body face for the pages.
  *
- * Overpass is what the catalog was designed in and what the EvoCloud themes set
- * app-wide, so on those the page and the chrome already agree. Under someone
- * else's theme they would not: the page would be the only thing on screen in a
- * font nothing else uses, which reads as a foreign panel however well the
- * colours match. Follows the theme in that case.
+ * Always the theme's own face, EvoCloud theme or not. The plugin ships no font:
+ * a page in a family nothing else on screen uses reads as a foreign panel
+ * however well the colours match. The fallback mirrors Headlamp's own default
+ * (see `frontend/src/lib/themes.ts`) for the case where a theme leaves
+ * typography unset.
  */
 export function usePageFont(): string {
   const theme = useTheme();
-  if (evoCloudThemeActive()) {
-    return 'Overpass, Helvetica, sans-serif';
-  }
-  return theme.typography.fontFamily ?? 'Overpass, Helvetica, sans-serif';
+  return theme.typography.fontFamily ?? 'Overpass, sans-serif';
 }
 
 /**
@@ -98,6 +101,10 @@ export const evoCss = (C: EvoCloudPalette) => `
 .evo-navcard, .evo-navcard:hover { text-decoration: none; color: inherit; }
 .evo-root :focus-visible { outline: 2px solid ${C.brand}; outline-offset: 2px; }
 @keyframes evo-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
+@keyframes evo-spin { to { transform: rotate(360deg) } }
+.evo-spinner { animation: evo-spin 720ms linear infinite; }
+/* A spinner that cannot spin says nothing, so it slows rather than stops. */
+@media (prefers-reduced-motion: reduce) { .evo-spinner { animation-duration: 2.4s; } }
 .evo-syncing { animation: evo-pulse 1.1s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .evo-syncing { animation: none } }
 `;
@@ -544,14 +551,44 @@ export function LiveBadge({ C, fetching, error, revision, what }: LiveBadgeProps
 /* ------------------------------------------------------------------ notice */
 
 /** The dashed empty / error / loading block. */
+/**
+ * Work in progress, as a ring rather than a bar.
+ *
+ * Deliberately not MUI's CircularProgress: the pages are built on the EvoCloud
+ * palette and inline styles, and pulling in a themed MUI component here would
+ * put a control coloured by Headlamp's theme in the middle of one that is not.
+ * The keyframes live in `evoCss`, which every page already injects.
+ */
+export function Spinner({ C, size = 20 }: { C: EvoCloudPalette; size?: number }) {
+  return (
+    <span
+      className="evo-spinner"
+      role="status"
+      aria-label="Loading"
+      style={{
+        display: 'inline-block',
+        flex: 'none',
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        border: `${Math.max(2, Math.round(size / 10))}px solid ${C.border}`,
+        borderTopColor: C.brand,
+      }}
+    />
+  );
+}
+
 export function Notice({
   C,
   title,
   children,
+  busy = false,
 }: {
   C: EvoCloudPalette;
   title: string;
   children?: React.ReactNode;
+  /** Show a spinner above the title, for a notice that is waiting on data. */
+  busy?: boolean;
 }) {
   return (
     <div
@@ -567,6 +604,7 @@ export function Notice({
         textAlign: 'center',
       }}
     >
+      {busy && <Spinner C={C} size={24} />}
       <div style={{ fontSize: '15px', fontWeight: 600 }}>{title}</div>
       {children && (
         <div style={{ fontSize: '13px', color: C.textMuted, maxWidth: '52ch', lineHeight: 1.6 }}>
@@ -1449,4 +1487,215 @@ export function shortRevision(revision?: string | null): string {
   const tag = revision.slice(0, at);
   const digest = revision.slice(at + 1).replace(/^[a-z0-9]+:/i, '');
   return `${tag}@${digest.slice(0, 7)}`;
+}
+
+
+/* -------------------------------------------------------------- side panel */
+
+/** Below this the panel would leave no room for the page; navigate instead. */
+const SIDE_PANEL_MIN_WIDTH = 900;
+
+/**
+ * True while the viewport is wide enough for a side panel to make sense.
+ *
+ * Headlamp drops its own drawer on small screens and falls back to a full page,
+ * and the pages here do the same: below the breakpoint the detail link stays a
+ * link. So the panel never becomes the only way to reach something.
+ */
+export function useSidePanelViable(): boolean {
+  const [viable, setViable] = React.useState(
+    () => typeof window === 'undefined' || window.innerWidth >= SIDE_PANEL_MIN_WIDTH
+  );
+
+  React.useEffect(() => {
+    const onResize = () => setViable(window.innerWidth >= SIDE_PANEL_MIN_WIDTH);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  return viable;
+}
+
+/** Top edge of Headlamp's content area, so the panel does not cover its header. */
+function useMainTop(active: boolean): number {
+  const read = () => document.getElementById('main')?.getBoundingClientRect().top ?? 0;
+  const [top, setTop] = React.useState(read);
+
+  React.useEffect(() => {
+    if (!active) {
+      return undefined;
+    }
+    const sync = () => setTop(read());
+    sync();
+    window.addEventListener('resize', sync);
+    return () => window.removeEventListener('resize', sync);
+  }, [active]);
+
+  return top;
+}
+
+/**
+ * A detail view that slides in beside the list instead of replacing it.
+ *
+ * Headlamp shows resource details this way, but its own drawer renders
+ * `KubeObjectDetails` for a Kubernetes object and nothing else — `Link.tsx`
+ * explicitly skips it for anything with a plugin's own details route, because
+ * its component map has no entry for one. So the behaviour is reproduced here
+ * rather than reused: same shape, same place on screen, and the same two
+ * accessibility details that make it a dialog rather than a floating div —
+ * focus moves into it, and the page behind it goes `inert` so neither the
+ * keyboard nor a screen reader wanders back out into content that is covered.
+ *
+ * Rendered through a portal so a card deep inside a `transform`ed or
+ * `overflow: hidden` ancestor cannot clip it, and positioned from the top of
+ * `#main` so it sits over the page without covering Headlamp's own header.
+ */
+export function SidePanel({
+  C,
+  open,
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  C: EvoCloudPalette;
+  open: boolean;
+  title: string;
+  subtitle?: React.ReactNode;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const top = useMainTop(open);
+
+  React.useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+
+    const main = document.getElementById('main');
+    main?.setAttribute('inert', '');
+    panelRef.current?.focus();
+
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      main?.removeAttribute('inert');
+    };
+  }, [open, onClose]);
+
+  if (!open) {
+    return null;
+  }
+
+  return createPortal(
+    <>
+      {/* Clicking away closes, the same as Escape. Deliberately unpainted:
+          Headlamp's drawer dims nothing, and a scrim here would darken a page
+          the panel is meant to be read alongside. */}
+      <div
+        onClick={onClose}
+        style={{ position: 'fixed', inset: `${top}px 0 0 0`, zIndex: 1200 }}
+      />
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        style={{
+          position: 'fixed',
+          top,
+          right: 0,
+          bottom: 0,
+          width: 'min(60vw, 760px)',
+          zIndex: 1201,
+          display: 'flex',
+          flexDirection: 'column',
+          background: C.bg,
+          color: C.text,
+          border: `1px solid ${C.border}`,
+          borderRight: 0,
+          borderRadius: '10px 0 0 10px',
+          boxShadow: '-5px 0 20px rgba(0,0,0,0.28)',
+          outline: 'none',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '12px',
+            padding: '14px 16px',
+            borderBottom: `1px solid ${C.divider}`,
+            background: C.surfaceSunken,
+            borderRadius: '10px 0 0 0',
+          }}
+        >
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ ...CLIP, fontSize: '15px', fontWeight: 600 }}>{title}</div>
+            {subtitle && (
+              <div style={{ ...CLIP, marginTop: '3px', fontSize: '12px', color: C.textDim }}>
+                {subtitle}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            className="evo-iconbtn"
+            onClick={onClose}
+            title="Close (Esc)"
+            aria-label="Close"
+            style={{
+              flex: 'none',
+              width: '28px',
+              height: '28px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'transparent',
+              border: 0,
+              borderRadius: '6px',
+              color: C.textDim,
+              cursor: 'pointer',
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>{children}</div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
+/**
+ * Intercept a plain left-click, leave every other click alone.
+ *
+ * The target stays a real `<a href>`: ctrl/cmd-click, middle-click and "open in
+ * new tab" must still reach the full page, and a link that is not a link reads
+ * as a button to a screen reader. Only the ordinary click becomes a panel.
+ */
+export function openInPanel(onOpen?: () => void) {
+  return (e: React.MouseEvent) => {
+    if (!onOpen || e.defaultPrevented || e.button !== 0) {
+      return;
+    }
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+      return;
+    }
+    e.preventDefault();
+    onOpen();
+  };
 }

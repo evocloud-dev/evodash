@@ -25,9 +25,12 @@ import {
   queryError,
   SearchBox,
   SectionHeading,
+  SidePanel,
   usePalette,
+  useSidePanelViable,
   ViewToggle,
 } from '../ui/chrome';
+import CrdSchemaDetail from './CrdSchemaDetail';
 import { buildSchemaViews, groupSchemas, groupsOf, ScopeFilter } from './crdSchemas/model';
 import { schemaURL } from './crdSchemas/routes';
 import { SchemaCard } from './crdSchemas/SchemaCard';
@@ -61,6 +64,20 @@ export default function CrdSchemas({ view: viewProp = 'grid' }: CrdSchemasProps)
   const [scopeFilter, setScopeFilter] = React.useState<ScopeFilter>('all');
   const [closed, setClosed] = React.useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
+  /**
+   * The schema shown in the side panel, or null for none.
+   *
+   * Held here rather than in the URL: the panel is a way of looking at one row
+   * of this list without leaving it, so it deliberately has no address. The
+   * detail route stays registered and every link still points at it, which is
+   * what a shared link, a new tab and a narrow screen all fall back to.
+   */
+  const [selected, setSelected] = React.useState<{
+    crdName: string;
+    version: string;
+    kind: string;
+  } | null>(null);
+  const panelViable = useSidePanelViable();
 
   // No refetchInterval, so Headlamp watches the list over its websocket and a
   // newly installed operator appears without the page being reloaded.
@@ -83,7 +100,7 @@ export default function CrdSchemas({ view: viewProp = 'grid' }: CrdSchemasProps)
   let body: React.ReactNode;
   if (crdQuery.isLoading) {
     body = (
-      <Notice C={C} title="Loading schemas">
+      <Notice C={C} busy title="Loading schemas">
         Reading CustomResourceDefinitions from the cluster.
       </Notice>
     );
@@ -139,13 +156,32 @@ export default function CrdSchemas({ view: viewProp = 'grid' }: CrdSchemasProps)
                     C={C}
                     schema={schema}
                     href={schemaURL(schema.crdName, schema.version)}
+                    onOpen={
+                      panelViable
+                        ? () =>
+                            setSelected({
+                              crdName: schema.crdName,
+                              version: schema.version,
+                              kind: schema.kind,
+                            })
+                        : undefined
+                    }
                     expanded={!!expanded[schema.key]}
                     onToggle={() => setExpanded(s => ({ ...s, [schema.key]: !s[schema.key] }))}
                   />
                 ))}
               </div>
             ) : (
-              <SchemaTable C={C} schemas={g.schemas} href={s => schemaURL(s.crdName, s.version)} />
+              <SchemaTable
+                C={C}
+                schemas={g.schemas}
+                href={s => schemaURL(s.crdName, s.version)}
+                onOpen={
+                  panelViable
+                    ? s => setSelected({ crdName: s.crdName, version: s.version, kind: s.kind })
+                    : undefined
+                }
+              />
             ))}
         </section>
       );
@@ -195,6 +231,24 @@ export default function CrdSchemas({ view: viewProp = 'grid' }: CrdSchemasProps)
       }
     >
       {body}
+      <SidePanel
+        C={C}
+        open={!!selected}
+        title={selected?.kind ?? ''}
+        subtitle={selected && `${selected.crdName} · ${selected.version}`}
+        onClose={() => setSelected(null)}
+      >
+        {selected && (
+          <CrdSchemaDetail
+            embedded
+            name={selected.crdName}
+            version={selected.version}
+            // Switching version inside the panel must not navigate the list
+            // behind it — that is the whole point of opening here.
+            onVersionChange={version => setSelected(sel => sel && { ...sel, version })}
+          />
+        )}
+      </SidePanel>
     </EvoPage>
   );
 }

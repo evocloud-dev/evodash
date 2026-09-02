@@ -1,0 +1,57 @@
+# An app published by a resource of its own, rather than by an annotation.
+#
+# Needs the CRD installed first:
+#
+#   kubectl apply -f crds/appendpoint-crd.yaml
+#   kubectl apply -f examples/app-endpoint.yaml
+#
+# Reach for this when an app has no Ingress or HTTPRoute to annotate — an
+# external service, something behind a Gateway you do not own, a link that is
+# not a cluster workload at all. Where a route does exist, annotating it is
+# less to keep in sync.
+#
+# These show as Source: Resource on the page.
+apiVersion: evocloud.dev/v1alpha1
+kind: AppEndpoint
+metadata:
+  name: grafana
+  namespace: default
+spec:
+  # Required: name and group.
+  name: "Grafana"
+  group: "observability"
+
+  icon: "https://raw.githubusercontent.com/stakater/ForecastleIcons/master/grafana.png"
+
+  # Either set the URL directly, with a scheme...
+  url: "https://grafana.evocloud.gov"
+
+  # ...or take it from another resource. Only ingressRef is resolved by the
+  # catalog itself — it reads the Ingress and uses the first rule's host. The
+  # other three name kinds the catalog does not read, so an app using them
+  # shows as "pending" rather than as a guessed-at dead link.
+  #
+  # urlFrom:
+  #   ingressRef:
+  #     name: grafana
+
+  networkRestricted: false
+
+  properties:
+    Version: "11.2.0"
+    Team: "platform"
+---
+# A second one, to show grouping. This app has no URL at all: it is published
+# but unreachable, which the page shows as a red dot and "no url" rather than
+# hiding it.
+apiVersion: evocloud.dev/v1alpha1
+kind: AppEndpoint
+metadata:
+  name: internal-wiki
+  namespace: default
+spec:
+  name: "Internal Wiki"
+  group: "documentation"
+  networkRestricted: true
+  properties:
+    Owner: "platform"

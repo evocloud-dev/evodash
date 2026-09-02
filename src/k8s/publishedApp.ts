@@ -1,26 +1,32 @@
 /**
- * ForecastleApp custom resource — forecastle.stakater.com/v1alpha1.
+ * The custom resources behind App Endpoints.
  *
- * Field set below is the CRD's own `openAPIV3Schema`, read from the cluster
- * rather than assumed. `name`, `group` and `icon` are required by the schema;
- * everything else is optional.
+ * Two kinds, one spec. `AppEndpoint` is the catalog's own — the one to write,
+ * shipped as a CRD in `crds/` — and `LegacyPublishedApp` is the upstream kind
+ * it replaced, still read so that a cluster already carrying those objects does
+ * not lose them. They are schema-compatible, so a single {@link PublishedAppSpec}
+ * covers both and the page treats them as one list.
  *
- * Note there is no `status` subresource. The controller does not write health
+ * The legacy group and kind are wire identifiers: they are what that cluster
+ * answers to, so they stay literal. Nothing displays them and nothing writes
+ * them.
+ *
+ * Note there is no `status` subresource on either. No controller writes health
  * back onto the object, so nothing here can report whether an app is actually
  * up — see {@link resolveLink} for what *can* be determined.
  */
 import { makeCustomResourceClass } from '@kinvolk/headlamp-plugin/lib/lib/k8s/crd';
 
-export interface ForecastleAppSpec {
-  /** Display name. Required by the CRD. */
+export interface PublishedAppSpec {
+  /** Display name. Required. */
   name: string;
-  /** Group heading this app is filed under. Required by the CRD. */
+  /** Group heading this app is filed under. Required. */
   group: string;
-  /** Absolute URL of an icon image. Required by the CRD. */
-  icon: string;
+  /** Absolute URL of an icon image. */
+  icon?: string;
   /** Absolute URL of the app, when set directly. */
   url?: string;
-  /** Forecastle instance this app belongs to. */
+  /** Catalog instance this app belongs to. */
   instance?: string;
   networkRestricted?: boolean;
   properties?: Record<string, string>;
@@ -33,7 +39,21 @@ export interface ForecastleAppSpec {
   };
 }
 
-export const ForecastleApp = makeCustomResourceClass({
+/** The catalog's own resource. `crds/appendpoint-crd.yaml` installs it. */
+export const AppEndpoint = makeCustomResourceClass({
+  apiInfo: [{ group: 'evocloud.dev', version: 'v1alpha1' }],
+  kind: 'AppEndpoint',
+  pluralName: 'appendpoints',
+  singularName: 'appendpoint',
+  isNamespaced: true,
+});
+
+/**
+ * The upstream kind this replaced. Read, never advertised — see the file
+ * comment. Absent on most clusters, which reads as an empty list rather than
+ * an error.
+ */
+export const LegacyPublishedApp = makeCustomResourceClass({
   apiInfo: [{ group: 'forecastle.stakater.com', version: 'v1alpha1' }],
   kind: 'ForecastleApp',
   pluralName: 'forecastleapps',
@@ -42,12 +62,28 @@ export const ForecastleApp = makeCustomResourceClass({
 });
 
 /**
+ * Where an app in the catalog came from.
+ *
+ * A dedicated resource is one someone wrote on purpose; the other two are
+ * routes that opted in with an annotation. Worth surfacing: the two are edited
+ * in completely different places, so "why is this app here" has a different
+ * answer for each.
+ */
+export type DiscoverySource = 'Resource' | 'Ingress' | 'HTTPRoute';
+
+export const SOURCE_LABEL: Record<DiscoverySource, string> = {
+  Resource: 'Resource',
+  Ingress: 'Ingress',
+  HTTPRoute: 'HTTPRoute',
+};
+
+/**
  * How an app's URL was arrived at.
  *
  * This replaces the mock design's `healthy | degraded | unreachable`, which had
- * no source — the CRD carries no health and the plugin cannot probe the app
- * from the browser. What is genuinely knowable is whether the app resolves to a
- * URL at all, so that is what the status dot reports.
+ * no source — neither the CRD nor an annotation carries health, and the plugin
+ * cannot probe the app from the browser. What is genuinely knowable is whether
+ * the app resolves to a URL at all, so that is what the status dot reports.
  */
 export type LinkState = 'direct' | 'resolved' | 'pending' | 'missing';
 
@@ -61,21 +97,30 @@ export interface ResolvedLink {
 
 /** Minimal shape needed from an Ingress to derive a URL. */
 export interface IngressLike {
-  metadata: { name: string; namespace?: string };
+  metadata: { name: string; namespace?: string; annotations?: Record<string, string> };
   spec?: {
     rules?: { host?: string }[];
     tls?: unknown[];
   };
 }
 
-const REF_KINDS: [keyof NonNullable<ForecastleAppSpec['urlFrom']>, string][] = [
+const REF_KINDS: [keyof NonNullable<PublishedAppSpec['urlFrom']>, string][] = [
   ['routeRef', 'Route'],
   ['ingressRouteRef', 'IngressRoute'],
   ['httpRouteRef', 'HTTPRoute'],
 ];
 
+/** First rule host on an Ingress, and whether it is served over TLS. */
+export function ingressUrl(ing: IngressLike): string | null {
+  const host = ing.spec?.rules?.find(r => r.host)?.host;
+  if (!host) {
+    return null;
+  }
+  return `${ing.spec?.tls?.length ? 'https' : 'http'}://${host}`;
+}
+
 /**
- * Work out an app's URL the way Forecastle's own controller does.
+ * Work out an app's URL the way the catalog controller does.
  *
  * A direct `spec.url` wins. Otherwise `urlFrom.ingressRef` is looked up against
  * the Ingresses passed in and the first rule's host is used, over https when the
@@ -87,7 +132,7 @@ const REF_KINDS: [keyof NonNullable<ForecastleAppSpec['urlFrom']>, string][] = [
  * put a dead link in front of the user.
  */
 export function resolveLink(
-  spec: ForecastleAppSpec,
+  spec: PublishedAppSpec,
   namespace: string | undefined,
   ingresses: IngressLike[] | null
 ): ResolvedLink {
@@ -109,18 +154,17 @@ export function resolveLink(
         note: `Ingress "${ingressName}" not found in ${namespace ?? 'this namespace'}`,
       };
     }
-    const host = match.spec?.rules?.find(r => r.host)?.host;
-    if (!host) {
+    const url = ingressUrl(match);
+    if (!url) {
       return { url: null, state: 'pending', note: `Ingress "${ingressName}" declares no host` };
     }
-    const scheme = match.spec?.tls?.length ? 'https' : 'http';
-    return { url: `${scheme}://${host}`, state: 'resolved' };
+    return { url, state: 'resolved', note: `Resolved from Ingress "${ingressName}"` };
   }
 
   for (const [key, kind] of REF_KINDS) {
     const ref = spec.urlFrom?.[key];
     if (ref?.name) {
-      return { url: null, state: 'pending', note: `Resolved by Forecastle from ${kind} "${ref.name}"` };
+      return { url: null, state: 'pending', note: `Resolved by the controller from ${kind} "${ref.name}"` };
     }
   }
 
@@ -129,7 +173,7 @@ export function resolveLink(
 
 export const LINK_LABEL: Record<LinkState, string> = {
   direct: 'direct',
-  resolved: 'from ingress',
+  resolved: 'resolved',
   pending: 'pending',
   missing: 'no url',
 };

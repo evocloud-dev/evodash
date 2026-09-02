@@ -5,15 +5,24 @@
  * thing keeping them aligned, so they must not be edited apart.
  */
 import React from 'react';
-import { LINK_LABEL } from '../../k8s/forecastleApp';
+import { LINK_LABEL, SOURCE_LABEL } from '../../k8s/publishedApp';
 import { EvoCloudPalette } from '../../palette';
 import { CLIP, CopyButton, MONO, Mono, OpenButton, Pill, RemoteIcon } from '../../ui/chrome';
 import { AppView, linkTone } from './model';
 
 const COLUMNS =
-  'minmax(150px, 1.3fr) minmax(130px, 1.4fr) minmax(84px, 110px) minmax(84px, 110px) 96px 84px 74px';
+  'minmax(150px, 1.3fr) minmax(130px, 1.4fr) minmax(84px, 110px) minmax(84px, 110px) 96px 96px 84px 74px';
 
-const HEADINGS = ['Application', 'URL', 'Namespace', 'Instance', 'Link', 'Network', 'Actions'];
+const HEADINGS = [
+  'Application',
+  'URL',
+  'Namespace',
+  'Instance',
+  'Link',
+  'Source',
+  'Network',
+  'Actions',
+];
 
 const LockIcon = ({ open }: { open: boolean }) => (
   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round">
@@ -22,7 +31,16 @@ const LockIcon = ({ open }: { open: boolean }) => (
   </svg>
 );
 
-export function AppTable({ C, apps }: { C: EvoCloudPalette; apps: AppView[] }) {
+export function AppTable({
+  C,
+  apps,
+  onOpen,
+}: {
+  C: EvoCloudPalette;
+  apps: AppView[];
+  /** Given, the application name opens the side panel. */
+  onOpen?: (app: AppView) => void;
+}) {
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: '10px', overflow: 'hidden', overflowX: 'auto', background: C.surface }}>
       <div
@@ -48,13 +66,21 @@ export function AppTable({ C, apps }: { C: EvoCloudPalette; apps: AppView[] }) {
         ))}
       </div>
       {apps.map(app => (
-        <AppRow key={app.key} C={C} app={app} />
+        <AppRow key={app.key} C={C} app={app} onOpen={onOpen && (() => onOpen(app))} />
       ))}
     </div>
   );
 }
 
-function AppRow({ C, app }: { C: EvoCloudPalette; app: AppView }) {
+function AppRow({
+  C,
+  app,
+  onOpen,
+}: {
+  C: EvoCloudPalette;
+  app: AppView;
+  onOpen?: () => void;
+}) {
   const url = app.link.url;
 
   return (
@@ -72,7 +98,32 @@ function AppRow({ C, app }: { C: EvoCloudPalette; app: AppView }) {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
         <RemoteIcon C={C} src={app.icon} name={app.name} size={26} />
-        <span style={{ ...CLIP, fontSize: '13.5px', fontWeight: 600, minWidth: 0 }}>{app.name}</span>
+        {onOpen ? (
+          <button
+            type="button"
+            onClick={onOpen}
+            title={`Open ${app.name}`}
+            style={{
+              ...CLIP,
+              minWidth: 0,
+              padding: 0,
+              background: 'transparent',
+              border: 0,
+              textAlign: 'left',
+              font: 'inherit',
+              fontSize: '13.5px',
+              fontWeight: 600,
+              color: 'inherit',
+              cursor: 'pointer',
+            }}
+          >
+            {app.name}
+          </button>
+        ) : (
+          <span style={{ ...CLIP, fontSize: '13.5px', fontWeight: 600, minWidth: 0 }}>
+            {app.name}
+          </span>
+        )}
       </div>
 
       {url ? (
@@ -95,6 +146,8 @@ function AppRow({ C, app }: { C: EvoCloudPalette; app: AppView }) {
         />
         <span style={{ ...CLIP, fontSize: '12px', color: C.textMuted }}>{LINK_LABEL[app.link.state]}</span>
       </div>
+
+      <Mono C={C}>{SOURCE_LABEL[app.source]}</Mono>
 
       <Pill
         fg={app.restricted ? C.gold : C.healthy}

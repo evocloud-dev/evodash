@@ -9,6 +9,12 @@
  * Reached from the schema index at /evocloud/crd-schemas, keyed by the CRD's
  * name and one of its versions, because a version is the unit of contract — see
  * crdSchemas/model.ts.
+ *
+ * Renders two ways from one body. As a page it takes its subject from the route
+ * and wraps itself in {@link EvoPage}; `embedded` drops that chrome and takes
+ * the subject from props instead, so the index can show the same view in a side
+ * panel without navigating away. The route stays registered either way — a
+ * shared link has to keep working, and the panel has no URL of its own.
  */
 import { K8s, Router } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
@@ -49,10 +55,32 @@ const PRE: React.CSSProperties = {
   whiteSpace: 'pre',
 };
 
-export default function CrdSchemaDetail() {
+export interface CrdSchemaDetailProps {
+  /** Overrides the route's CRD name. Required when embedded. */
+  name?: string;
+  /** Overrides the route's version. Required when embedded. */
+  version?: string;
+  /** Render bare, for a side panel, instead of as a full page. */
+  embedded?: boolean;
+  /**
+   * Where the version switcher goes when embedded. Without this the switcher
+   * would navigate the page underneath the panel, which is the one thing the
+   * panel exists to avoid.
+   */
+  onVersionChange?: (version: string) => void;
+}
+
+export default function CrdSchemaDetail({
+  name: nameProp,
+  version: versionProp,
+  embedded = false,
+  onVersionChange,
+}: CrdSchemaDetailProps = {}) {
   const C = usePalette();
   const history = useHistory();
-  const { name = '', version = '' } = useParams<{ name: string; version: string }>();
+  const params = useParams<{ name: string; version: string }>();
+  const name = nameProp ?? params.name ?? '';
+  const version = versionProp ?? params.version ?? '';
 
   const [q, setQ] = React.useState('');
   const [openPaths, setOpenPaths] = React.useState<Record<string, boolean>>({});
@@ -115,7 +143,7 @@ export default function CrdSchemaDetail() {
 
   let body: React.ReactNode;
   if (!crd && !error) {
-    body = <Notice C={C} title="Loading schema" />;
+    body = <Notice C={C} busy title="Loading schema" />;
   } else if (isForbidden(error)) {
     body = (
       <Notice C={C} title="Not allowed to read this definition">
@@ -267,6 +295,76 @@ export default function CrdSchemaDetail() {
     );
   }
 
+  const actions = schema && (
+    <>
+      <SearchBox C={C} value={q} onChange={setQ} placeholder="Filter fields" />
+      {versions.length > 1 && (
+        <FilterSelect
+                C={C}
+                value={schema.version}
+                onChange={v =>
+                  onVersionChange ? onVersionChange(v) : history.push(schemaURL(schema.crdName, v))
+                }
+                label="Schema version"
+                options={versions.map(v => ({
+                  value: v.version,
+                  label: v.storage ? `${v.version} (storage)` : v.version,
+                }))}
+              />
+            )}
+      <GhostButton C={C} onClick={() => setAll(true)} title="Open every field">
+        Expand all
+      </GhostButton>
+      <GhostButton C={C} onClick={() => setAll(false)} title="Close every field">
+        Collapse all
+      </GhostButton>
+      <GhostButton
+        C={C}
+        onClick={() => setShowRaw(v => !v)}
+        active={showRaw}
+        title="The OpenAPI v3 schema as the CRD publishes it"
+      >
+        Raw schema
+      </GhostButton>
+    </>
+  );
+
+  const content = (
+    <>
+      {body}
+      {/* Only reachable when a query hid everything; the tree above is the page. */}
+      {schema && searching && shown.length === 0 && (
+        <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <Chip C={C}>tip</Chip>
+          <span style={{ fontSize: '12px', color: C.textMuted }}>
+            A leading dot searches paths only — <Code>.spec.</Code> lists everything under spec.
+          </span>
+        </div>
+      )}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div className="evo-root" style={{ padding: '14px 16px 24px', color: C.text }}>
+        {actions && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: '8px',
+              marginBottom: '14px',
+            }}
+          >
+            {actions}
+          </div>
+        )}
+        {content}
+      </div>
+    );
+  }
+
   return (
     <EvoPage
       section="CRD Schemas"
@@ -289,50 +387,9 @@ export default function CrdSchemaDetail() {
           name
         )
       }
-      actions={
-        schema && (
-          <>
-            <SearchBox C={C} value={q} onChange={setQ} placeholder="Filter fields" />
-            {versions.length > 1 && (
-              <FilterSelect
-                C={C}
-                value={schema.version}
-                onChange={v => history.push(schemaURL(schema.crdName, v))}
-                label="Schema version"
-                options={versions.map(v => ({
-                  value: v.version,
-                  label: v.storage ? `${v.version} (storage)` : v.version,
-                }))}
-              />
-            )}
-            <GhostButton C={C} onClick={() => setAll(true)} title="Open every field">
-              Expand all
-            </GhostButton>
-            <GhostButton C={C} onClick={() => setAll(false)} title="Close every field">
-              Collapse all
-            </GhostButton>
-            <GhostButton
-              C={C}
-              onClick={() => setShowRaw(v => !v)}
-              active={showRaw}
-              title="The OpenAPI v3 schema as the CRD publishes it"
-            >
-              Raw schema
-            </GhostButton>
-          </>
-        )
-      }
+      actions={actions}
     >
-      {body}
-      {/* Only reachable when a query hid everything; the tree above is the page. */}
-      {schema && searching && shown.length === 0 && (
-        <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <Chip C={C}>tip</Chip>
-          <span style={{ fontSize: '12px', color: C.textMuted }}>
-            A leading dot searches paths only — <Code>.spec.</Code> lists everything under spec.
-          </span>
-        </div>
-      )}
+      {content}
     </EvoPage>
   );
 }
