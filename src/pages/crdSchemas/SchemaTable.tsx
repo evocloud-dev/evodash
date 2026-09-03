@@ -13,17 +13,20 @@
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { EvoCloudPalette } from '../../palette';
-import { age, Chip, CLIP, Column, DataTable, Mono, NUMERIC, Pill } from '../../ui/chrome';
+import { age, Chip, CLIP, Column, DataTable, Mono, NUMERIC, openInPanel, Pill } from '../../ui/chrome';
 import { SchemaView } from './model';
 
 export function SchemaTable({
   C,
   schemas,
   href,
+  onOpen,
 }: {
   C: EvoCloudPalette;
   schemas: SchemaView[];
   href: (schema: SchemaView) => string;
+  /** Given, a plain click opens the side panel instead of navigating. */
+  onOpen?: (schema: SchemaView) => void;
 }) {
   const columns: Column<SchemaView>[] = [
     {
@@ -31,7 +34,11 @@ export function SchemaTable({
       label: 'Kind',
       width: 'minmax(150px, 1.4fr)',
       render: s => (
-        <RouterLink to={href(s)} style={{ ...CLIP, fontSize: '13px', fontWeight: 600 }}>
+        <RouterLink
+          to={href(s)}
+          onClick={openInPanel(onOpen && (() => onOpen(s)))}
+          style={{ ...CLIP, fontSize: '13px', fontWeight: 600 }}
+        >
           {s.kind}
         </RouterLink>
       ),

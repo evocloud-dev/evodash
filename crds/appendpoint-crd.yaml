@@ -1,0 +1,118 @@
+# The AppEndpoint custom resource.
+#
+# Install this once per cluster and App Endpoints gains its second source: apps
+# described by a resource of their own rather than by an annotation on a route.
+# Useful for anything with no Ingress or HTTPRoute to hang an annotation on.
+#
+#   kubectl apply -f crds/appendpoint-crd.yaml
+#
+# There is deliberately no controller. Nothing reconciles these objects and
+# nothing writes status back onto them — the catalog reads them directly, so a
+# CRD on its own is the whole install.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: appendpoints.evocloud.dev
+spec:
+  group: evocloud.dev
+  scope: Namespaced
+  names:
+    kind: AppEndpoint
+    plural: appendpoints
+    singular: appendpoint
+    shortNames:
+      - appep
+    categories:
+      - evocloud
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: App
+          type: string
+          jsonPath: .spec.name
+        - name: Group
+          type: string
+          jsonPath: .spec.group
+        - name: URL
+          type: string
+          jsonPath: .spec.url
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - name
+                - group
+              properties:
+                name:
+                  type: string
+                  description: Display name shown on the card.
+                  minLength: 1
+                group:
+                  type: string
+                  description: Group heading the app is filed under.
+                  minLength: 1
+                icon:
+                  type: string
+                  description: Absolute URL of an icon image.
+                url:
+                  type: string
+                  description: >-
+                    Absolute URL of the app, including scheme. Takes precedence
+                    over urlFrom.
+                  pattern: '^https?://'
+                instance:
+                  type: string
+                  description: Catalog instance this app belongs to.
+                networkRestricted:
+                  type: boolean
+                  description: >-
+                    True when the app is reachable only from inside the cluster
+                    network. Shows a padlock and an "Internal" pill.
+                  default: false
+                properties:
+                  type: object
+                  description: >-
+                    Free-form key/value pairs shown in the card's expandable
+                    properties panel.
+                  additionalProperties:
+                    type: string
+                urlFrom:
+                  type: object
+                  description: >-
+                    Take the URL from another resource instead of setting it
+                    directly. Exactly one ref is meaningful; ingressRef is
+                    resolved by the catalog itself, the others are reported as
+                    pending rather than guessed at.
+                  properties:
+                    ingressRef:
+                      type: object
+                      required: [name]
+                      properties:
+                        name:
+                          type: string
+                    routeRef:
+                      type: object
+                      required: [name]
+                      properties:
+                        name:
+                          type: string
+                    ingressRouteRef:
+                      type: object
+                      required: [name]
+                      properties:
+                        name:
+                          type: string
+                    httpRouteRef:
+                      type: object
+                      required: [name]
+                      properties:
+                        name:
+                          type: string

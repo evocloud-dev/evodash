@@ -1,0 +1,29 @@
+# The same annotation-based publishing, on a plain Ingress.
+#
+#   kubectl apply -f annotated-ingress.yaml
+#
+# Identical annotation set to the HTTPRoute example — only the resource kind
+# differs. The URL comes from the first rule's host, over https when the
+# Ingress declares TLS and http when it does not.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: evocloud-docs
+  namespace: default
+  annotations:
+    evocloud.dev/expose: "true"
+    evocloud.dev/appName: "Platform Docs"
+    evocloud.dev/group: "documentation"
+    evocloud.dev/properties: "Owner:platform,Docs:https://docs.evocloud.gov"
+spec:
+  rules:
+    - host: docs.evocloud.gov
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kubernetes
+                port:
+                  number: 443

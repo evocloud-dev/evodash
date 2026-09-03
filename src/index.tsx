@@ -16,18 +16,18 @@
 
 import './themes';
 import { registerAppLogo, registerRoute, registerSidebarEntry } from '@kinvolk/headlamp-plugin/lib';
-import { SectionBox } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import Typography from '@mui/material/Typography';
 import React from 'react';
-import { EVOCLOUD_ICON } from './icons/evocloud';
+import { EVOCLOUD_ICON_MONO } from './icons/evocloud';
 import AppEndpoints from './pages/AppEndpoints';
 import CrdSchemaDetail from './pages/CrdSchemaDetail';
 import CrdSchemas from './pages/CrdSchemas';
+import Overview from './pages/Overview';
 import { CRD_SCHEMA_ROUTE, CRD_SCHEMAS_ROUTE } from './pages/crdSchemas/routes';
 import { EvoCloudAppLogo } from './ui/AppLogo';
 
-// Navbar logo. Branded while an EvoCloud theme is active; see AppLogo.tsx for
-// why the other themes need an explicit fallback rather than a null return.
+// Navbar wordmark. Headlamp's own mark either way; only the word changes, and
+// only while an EvoCloud theme is selected — see AppLogo.tsx for why every
+// branch of it has to render something.
 registerAppLogo(EvoCloudAppLogo);
 
 // 1. Top-Level EvoCloud Parent Sidebar Item
@@ -35,7 +35,7 @@ registerSidebarEntry({
   parent: null,
   name: 'evocloud',
   label: 'EvoCloud',
-  icon: EVOCLOUD_ICON,
+  icon: EVOCLOUD_ICON_MONO,
   url: '/evocloud/overview',
 });
 
@@ -52,12 +52,7 @@ registerRoute({
   sidebar: 'evocloud-overview',
   name: 'evocloud-overview',
   exact: true,
-  component: () => (
-    <SectionBox title="EvoCloud Overview" textAlign="center" paddingTop={2}>
-      <Typography>Welcome to the EvoCloud Platform Dashboard.</Typography>
-      <Typography>ABCDEFGHIJKLMNOPQRSTUVWXYZ</Typography>
-    </SectionBox>
-  ),
+  component: () => <Overview />,
 });
 
 // 3. Child Item: App Endpoints — the published application catalog
@@ -76,49 +71,7 @@ registerRoute({
   component: () => <AppEndpoints />,
 });
 
-// 4. Child Item: GitOps Delivery (Flux)
-registerSidebarEntry({
-  parent: 'evocloud',
-  name: 'evocloud-gitops',
-  label: 'GitOps Delivery',
-  url: '/evocloud/gitops',
-});
-
-registerRoute({
-  path: '/evocloud/gitops',
-  sidebar: 'evocloud-gitops',
-  name: 'evocloud-gitops',
-  exact: true,
-  component: () => (
-    <SectionBox title="GitOps Delivery" textAlign="center" paddingTop={2}>
-      <Typography>Manage declarative Flux deployments and Git repositories.</Typography>
-    </SectionBox>
-  ),
-});
-
-// 4. Child Item: Compliance & Policies (Kyverno)
-registerSidebarEntry({
-  parent: 'evocloud',
-  name: 'evocloud-policies',
-  label: 'Compliance Policies',
-  url: '/evocloud/policies',
-});
-
-registerRoute({
-  path: '/evocloud/policies',
-  sidebar: 'evocloud-policies',
-  name: 'evocloud-policies',
-  exact: true,
-  component: () => (
-    <SectionBox title="Compliance Policies" textAlign="center" paddingTop={2}>
-      <Typography>
-        Monitor Kyverno cluster policies, benchmarks, and vulnerability scans.
-      </Typography>
-    </SectionBox>
-  ),
-});
-
-// 5. Child Item: CRD Schemas — the contracts behind every custom resource
+// 4. Child Item: CRD Schemas — the contracts behind every custom resource
 registerSidebarEntry({
   parent: 'evocloud',
   name: CRD_SCHEMAS_ROUTE,
@@ -143,24 +96,4 @@ registerRoute({
   name: CRD_SCHEMA_ROUTE,
   exact: true,
   component: () => <CrdSchemaDetail />,
-});
-
-// 6. Child Item: Networking & Observability (Cilium)
-registerSidebarEntry({
-  parent: 'evocloud',
-  name: 'evocloud-networking',
-  label: 'Networking & eBPF',
-  url: '/evocloud/networking',
-});
-
-registerRoute({
-  path: '/evocloud/networking',
-  sidebar: 'evocloud-networking',
-  name: 'evocloud-networking',
-  exact: true,
-  component: () => (
-    <SectionBox title="Networking & eBPF Observability" textAlign="center" paddingTop={2}>
-      <Typography>Cilium eBPF networking, security policies, and observability metrics.</Typography>
-    </SectionBox>
-  ),
 });

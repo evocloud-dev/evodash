@@ -1,0 +1,52 @@
+# An app published by ANNOTATION on a Gateway API HTTPRoute.
+#
+# This is the "special" kind: there is no separate catalog object anywhere.
+# The HTTPRoute that already publishes the app is also what describes it, so
+# App Endpoints lists it with no operator and no CRD installed.
+#
+#   kubectl apply -f annotated-httproute.yaml
+#
+# Only `expose` is required. Everything else has a default: the app is named
+# after the resource, grouped under its namespace, and gets no icon.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: evocloud-ui
+  namespace: default
+  annotations:
+    # Required. Without this the route is ignored entirely.
+    evocloud.dev/expose: "true"
+
+    # Display name. Defaults to the resource name (`evocloud-ui`).
+    evocloud.dev/appName: "EvoCloud UI"
+
+    # Group heading on the page. Defaults to the namespace.
+    evocloud.dev/group: "apis & interfaces"
+
+    # Absolute URL of an icon image.
+    evocloud.dev/icon: "https://raw.githubusercontent.com/stakater/ForecastleIcons/master/grafana.png"
+
+    # Shows the padlock and "Internal" pill; reachable inside the cluster only.
+    evocloud.dev/network-restricted: "true"
+
+    # Comma-separated key:value pairs, NOT JSON. Shown in the expandable
+    # properties panel on the card. Values may themselves contain colons.
+    evocloud.dev/properties: "Version:1.0.0,Platform:EvoCloud"
+
+    # Optional. Overrides the URL derived from spec.hostnames below; must
+    # carry a scheme. An HTTPRoute names hosts but not scheme — TLS is
+    # declared on the Gateway listener — so the catalog assumes https, and
+    # this is how you say otherwise.
+    # evocloud.dev/url: "http://monitoring.evocloud.gov:8080"
+spec:
+  # The first hostname becomes the app's URL: https://monitoring.evocloud.gov
+  hostnames:
+    - monitoring.evocloud.gov
+
+  # parentRefs are what make the route actually serve traffic. The catalog
+  # reads declarations rather than probing, so it lists the app either way —
+  # useful while a Gateway is still being wired up.
+  #
+  # parentRefs:
+  #   - name: evocloud-gateway
+  #     namespace: default

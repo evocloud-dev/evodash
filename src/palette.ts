@@ -4,7 +4,7 @@
  * Single source of truth for both the Headlamp app themes (themes.ts) and the
  * plugin's own pages (pages/AppEndpoints.tsx), so the two cannot drift.
  *
- * The dark set is the palette from the Forecastle catalog design, unchanged.
+ * The dark set is the palette from the App Endpoints catalog design, unchanged.
  * The light set is its counterpart, built role-for-role rather than by
  * inverting: the neutrals keep the same blue bias toward the brand's midnight
  * navy, and the accents are re-picked for a light ground instead of reused.
@@ -92,7 +92,7 @@ export interface EvoCloudPalette {
   danger: string;
 }
 
-/** Lifted verbatim from the Forecastle catalog design. */
+/** Lifted verbatim from the App Endpoints catalog design. */
 export const EVOCLOUD_DARK: EvoCloudPalette = {
   bg: '#0a0d16',
   surface: '#111624',

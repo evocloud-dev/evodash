@@ -28,9 +28,8 @@ const THEME_PREFERENCE_KEY = 'headlampThemePreference';
  * True when one of this plugin's own themes is selected.
  *
  * Read from storage because the MUI theme does not carry its Headlamp name —
- * `createMuiTheme` builds a palette and drops the name on the floor. This is the
- * same signal Headlamp hands to a registered app logo as `themeName`, which is
- * why ui/AppLogo.tsx can test it directly and this cannot.
+ * `createMuiTheme` builds a palette and drops the name on the floor, so there is
+ * nowhere else to ask.
  *
  * Not reactive on its own. It does not need to be: every caller also reads the
  * MUI theme, so a theme change re-renders them and this is read again.
