@@ -1,8 +1,21 @@
-import { registerAppTheme } from '@kinvolk/headlamp-plugin/lib';
-import { EVOCLOUD_DARK, EVOCLOUD_LIGHT } from './palette';
+// Disabled along with the theme registrations below. Both imports would be
+// unused while those are commented out.
+// import { registerAppTheme } from '@kinvolk/headlamp-plugin/lib';
+// import { EVOCLOUD_DARK, EVOCLOUD_LIGHT } from './palette';
 
 /**
- * EvoCloud Headlamp app themes.
+ * EvoCloud Headlamp app themes — CURRENTLY DISABLED.
+ *
+ * Both registrations are commented out, so neither theme is offered in
+ * Settings > General. Uncomment the two blocks below and the imports above to
+ * bring them back; nothing else needs changing.
+ *
+ * Two knock-on effects while they are off, both already handled:
+ *   - `evoCloudThemeActive()` always returns false, so `usePalette()` derives
+ *     the plugin's colours from whichever Headlamp theme is active. That path
+ *     exists for exactly this case; the pages stay readable on every theme.
+ *   - The navbar wordmark reads "Headlamp" on every theme, since it changes to
+ *     "EvoCloud" only while an EvoCloud theme is selected. See ui/AppLogo.tsx.
  *
  * Both themes are built from the shared palette in palette.ts, whose dark set is
  * the App Endpoints catalog palette verbatim — so Headlamp's own chrome and the
@@ -18,6 +31,7 @@ import { EVOCLOUD_DARK, EVOCLOUD_LIGHT } from './palette';
  *   panel in someone else's font.
  */
 
+/*
 // 1. EvoCloud Light Theme (Clean, executive daytime workspace & documentation views)
 registerAppTheme({
   name: 'EvoCloud Light',
@@ -85,3 +99,4 @@ registerAppTheme({
   buttonTextTransform: 'none',
   radius: 8,
 });
+*/
