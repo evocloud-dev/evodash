@@ -15,7 +15,7 @@
  */
 
 import './themes';
-import { registerAppLogo, registerRoute, registerSidebarEntry } from '@kinvolk/headlamp-plugin/lib';
+import { registerRoute, registerSidebarEntry } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
 import { EVOCLOUD_ICON_MONO } from './icons/evocloud';
 import AppEndpoints from './pages/AppEndpoints';
@@ -23,12 +23,24 @@ import CrdSchemaDetail from './pages/CrdSchemaDetail';
 import CrdSchemas from './pages/CrdSchemas';
 import Overview from './pages/Overview';
 import { CRD_SCHEMA_ROUTE, CRD_SCHEMAS_ROUTE } from './pages/crdSchemas/routes';
-import { EvoCloudAppLogo } from './ui/AppLogo';
+// import { EvoCloudAppLogo } from './ui/AppLogo';
 
-// Navbar wordmark. Headlamp's own mark either way; only the word changes, and
-// only while an EvoCloud theme is selected — see AppLogo.tsx for why every
-// branch of it has to render something.
-registerAppLogo(EvoCloudAppLogo);
+// Navbar wordmark — DISABLED, and it should stay that way unless the logo is
+// meant to be this plugin's job.
+//
+// Headlamp holds exactly one logo slot (`state.theme.logo`). Registering here
+// does not add a logo beside anyone else's, it takes the slot: Headlamp's own
+// OriginalAppLogo stops rendering entirely, and a second plugin that registers
+// a logo either overwrites this or is overwritten by it, decided by nothing
+// more than plugin load order. That is what was breaking the standalone logo
+// plugin.
+//
+// It also has nothing left to do. The wordmark only read "EvoCloud" while an
+// EvoCloud theme was selected, and those registrations are commented out in
+// themes.ts — so this could only ever render the word "Headlamp" over
+// Headlamp's own mark, at the cost of the slot.
+//
+// registerAppLogo(EvoCloudAppLogo);
 
 // 1. Top-Level EvoCloud Parent Sidebar Item
 registerSidebarEntry({

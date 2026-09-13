@@ -26,12 +26,14 @@ import {
   firstRealError,
   isForbidden,
   Notice,
+  Panel,
   Stat,
   StatGrid,
   usePalette,
   EvoPage,
 } from '../ui/chrome';
 import { buildAppViews, groupsOf as appGroupsOf } from './appEndpoints/model';
+import { BarChart, Slice, StackedBar } from './overview/Charts';
 import { buildSchemaViews, groupsOf as schemaGroupsOf } from './crdSchemas/model';
 import { CRD_SCHEMAS_ROUTE } from './crdSchemas/routes';
 
@@ -112,6 +114,45 @@ export default function Overview() {
   const byAnnotation = apps.length - byResource;
   const unreachable = apps.filter(a => !a.link.url).length;
   const restricted = apps.filter(a => a.restricted).length;
+
+  /**
+   * Schemas per API group, largest first.
+   *
+   * Tailed off past the eighth: a cluster with Gateway API and a service mesh
+   * runs to twenty-odd groups, and the long tail of one-schema groups tells you
+   * nothing a single "Other" row does not.
+   */
+  const schemasByGroup: Slice[] = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const schema of schemas) {
+      counts.set(schema.group, (counts.get(schema.group) ?? 0) + 1);
+    }
+
+    const sorted = [...counts]
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
+
+    const TOP = 8;
+    if (sorted.length <= TOP + 1) {
+      return sorted;
+    }
+    const tail = sorted.slice(TOP).reduce((n, g) => n + g.value, 0);
+    return [...sorted.slice(0, TOP), { label: `Other (${sorted.length - TOP} groups)`, value: tail }];
+  }, [schemas]);
+
+  // Fixed order, so a source dropping to zero never repaints the others.
+  const bySource: Slice[] = React.useMemo(
+    () => [
+      { label: 'Resource', value: apps.filter(a => a.source === 'Resource').length },
+      { label: 'Ingress', value: apps.filter(a => a.source === 'Ingress').length },
+      { label: 'HTTPRoute', value: apps.filter(a => a.source === 'HTTPRoute').length },
+    ],
+    [apps]
+  );
+
+  // One filled segment is a stat tile with extra ink, and one bar is not a bar
+  // chart — below two categories each figure is dropped rather than drawn.
+  const sourcesUsed = bySource.filter(s => s.value > 0).length;
 
   const appGroups = appGroupsOf(apps).length;
   const apiGroups = schemaGroupsOf(schemas).length;
@@ -207,6 +248,34 @@ export default function Overview() {
     body = (
       <>
         <StatGrid C={C} stats={stats} />
+
+        {(sourcesUsed > 1 || schemasByGroup.length > 1) && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+              gap: '12px',
+              marginBottom: '26px',
+              alignItems: 'start',
+            }}
+          >
+            {sourcesUsed > 1 && (
+              <Panel C={C} caption="Applications by source">
+                <div style={{ padding: '16px 16px 14px' }}>
+                  <StackedBar C={C} slices={bySource} unit="application" />
+                </div>
+              </Panel>
+            )}
+
+            {schemasByGroup.length > 1 && (
+              <Panel C={C} caption="Schemas by API group">
+                <div style={{ padding: '12px 16px 14px' }}>
+                  <BarChart C={C} rows={schemasByGroup} unit="schema" />
+                </div>
+              </Panel>
+            )}
+          </div>
+        )}
 
         {noAppSources && (
           <div style={{ marginBottom: '22px' }}>
