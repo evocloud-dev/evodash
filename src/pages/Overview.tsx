@@ -137,7 +137,10 @@ export default function Overview() {
       return sorted;
     }
     const tail = sorted.slice(TOP).reduce((n, g) => n + g.value, 0);
-    return [...sorted.slice(0, TOP), { label: `Other (${sorted.length - TOP} groups)`, value: tail }];
+    return [
+      ...sorted.slice(0, TOP),
+      { label: `Other (${sorted.length - TOP} groups)`, value: tail },
+    ];
   }, [schemas]);
 
   // Fixed order, so a source dropping to zero never repaints the others.
@@ -234,8 +237,7 @@ export default function Overview() {
   } else if (isForbidden(error)) {
     body = (
       <Notice C={C} title="Not allowed to read this cluster">
-        The overview needs list access to ingresses, custom resources and
-        customresourcedefinitions.
+        The overview needs list access to ingresses, custom resources and customresourcedefinitions.
       </Notice>
     );
   } else if (error) {
@@ -281,8 +283,7 @@ export default function Overview() {
           <div style={{ marginBottom: '22px' }}>
             <Notice C={C} title="Nothing can publish an app here yet">
               None of the sources the catalog reads exist on this cluster. Installing the
-              AppEndpoint CRD, or annotating an Ingress or HTTPRoute, gives it something to
-              show.
+              AppEndpoint CRD, or annotating an Ingress or HTTPRoute, gives it something to show.
             </Notice>
           </div>
         )}
@@ -347,9 +348,9 @@ export default function Overview() {
       summary={
         loading
           ? 'Reading the cluster'
-          : `${apps.length} application${apps.length === 1 ? '' : 's'} · ${
-              schemas.length
-            } schema${schemas.length === 1 ? '' : 's'}`
+          : `${apps.length} application${apps.length === 1 ? '' : 's'} · ${schemas.length} schema${
+              schemas.length === 1 ? '' : 's'
+            }`
       }
     >
       {body}

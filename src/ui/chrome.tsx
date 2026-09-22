@@ -112,20 +112,45 @@ export const evoCss = (C: EvoCloudPalette) => `
 /* ------------------------------------------------------------------ icons */
 
 export const FolderIcon = ({ size, stroke }: { size: number; stroke: string }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.9" strokeLinejoin="round">
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={stroke}
+    strokeWidth="1.9"
+    strokeLinejoin="round"
+  >
     <path d="M3 7.5a2 2 0 0 1 2-2h3.6l1.8 2.2H19a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
   </svg>
 );
 
 export const CopyIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinejoin="round"
+  >
     <rect x="9" y="9" width="11" height="11" rx="2" />
     <path d="M15 5.5V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h.5" />
   </svg>
 );
 
 export const OpenIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M14 4h6v6" />
     <path d="M20 4 11 13" />
     <path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
@@ -133,7 +158,16 @@ export const OpenIcon = () => (
 );
 
 export const CheckIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polyline points="4 12.5 9.5 18 20 6.5" />
   </svg>
 );
@@ -148,7 +182,10 @@ export const ChevronIcon = ({ open }: { open: boolean }) => (
     strokeWidth="2.4"
     strokeLinecap="round"
     strokeLinejoin="round"
-    style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 140ms ease' }}
+    style={{
+      transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+      transition: 'transform 140ms ease',
+    }}
   >
     <polyline points="6 9.5 12 15.5 18 9.5" />
   </svg>
@@ -238,7 +275,9 @@ export function CopyButton({
       type="button"
       className="evo-iconbtn"
       onClick={async () => setState((await writeClipboard(value)) ? 'ok' : 'fail')}
-      title={state === 'ok' ? 'Copied' : state === 'fail' ? 'Copy blocked by the browser' : 'Copy URL'}
+      title={
+        state === 'ok' ? 'Copied' : state === 'fail' ? 'Copy blocked by the browser' : 'Copy URL'
+      }
       aria-label={`Copy URL for ${label}`}
       style={{
         ...ICON_BUTTON,
@@ -251,7 +290,15 @@ export function CopyButton({
 }
 
 /** Open-in-new-tab link, styled to match {@link CopyButton}. */
-export function OpenButton({ C, href, label }: { C: EvoCloudPalette; href: string; label: string }) {
+export function OpenButton({
+  C,
+  href,
+  label,
+}: {
+  C: EvoCloudPalette;
+  href: string;
+  label: string;
+}) {
   return (
     <a
       href={href}
@@ -388,7 +435,9 @@ export function sourceOf(...classes: ResourceClassLike[]): string {
     byVersion.set(version, kinds);
   }
 
-  return Array.from(byVersion, ([version, kinds]) => `${version} · ${kinds.join(', ')}`).join('  |  ');
+  return Array.from(byVersion, ([version, kinds]) => `${version} · ${kinds.join(', ')}`).join(
+    '  |  '
+  );
 }
 
 /* ------------------------------------------------------------ list queries */
@@ -542,7 +591,9 @@ export function LiveBadge({ C, fetching, error, revision, what }: LiveBadgeProps
       />
       <span>{error ? 'disconnected' : fetching ? 'syncing' : 'live'}</span>
       {!error && !fetching && (
-        <span style={{ ...NUMERIC, fontFamily: MONO, fontSize: '11px', color: C.textFaint }}>{ago}</span>
+        <span style={{ ...NUMERIC, fontFamily: MONO, fontSize: '11px', color: C.textFaint }}>
+          {ago}
+        </span>
       )}
     </div>
   );
@@ -716,7 +767,15 @@ export function EvoPage({
                   <span style={{ color: C.gold }}>{section}</span>
                 )}
               </div>
-              <h1 style={{ margin: 0, fontSize: '26px', fontWeight: 700, letterSpacing: '-0.015em', lineHeight: 1.15 }}>
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: '26px',
+                  fontWeight: 700,
+                  letterSpacing: '-0.015em',
+                  lineHeight: 1.15,
+                }}
+              >
                 {title}
               </h1>
               <div style={{ ...NUMERIC, fontSize: '13px', color: C.textMuted }}>{summary}</div>
@@ -724,7 +783,9 @@ export function EvoPage({
           </div>
 
           {actions && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>{actions}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              {actions}
+            </div>
           )}
         </div>
 
@@ -782,7 +843,15 @@ export function SearchBox({
         transition: 'border-color 140ms ease',
       }}
     >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.textDim} strokeWidth="2.2" strokeLinecap="round">
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={C.textDim}
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      >
         <circle cx="10.5" cy="10.5" r="6.5" />
         <line x1="15.5" y1="15.5" x2="21" y2="21" />
       </svg>
@@ -791,7 +860,15 @@ export function SearchBox({
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
         aria-label={placeholder}
-        style={{ flex: 1, minWidth: 0, background: 'transparent', border: 0, outline: 0, color: C.text, fontSize: '13px' }}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          background: 'transparent',
+          border: 0,
+          outline: 0,
+          color: C.text,
+          fontSize: '13px',
+        }}
       />
       {/*
         The design showed a "/" shortcut hint here. Nothing bound it, and
@@ -836,7 +913,11 @@ export function FilterSelect({
       }}
     >
       {icon && (
-        <span style={{ position: 'absolute', left: '10px', pointerEvents: 'none', display: 'flex' }}>{icon}</span>
+        <span
+          style={{ position: 'absolute', left: '10px', pointerEvents: 'none', display: 'flex' }}
+        >
+          {icon}
+        </span>
       )}
       <select
         value={value}
@@ -977,7 +1058,13 @@ export function ViewToggle({
         padding: '3px',
       }}
     >
-      <button type="button" onClick={() => onChange('grid')} title="Grid view" aria-label="Grid view" style={seg(value === 'grid')}>
+      <button
+        type="button"
+        onClick={() => onChange('grid')}
+        title="Grid view"
+        aria-label="Grid view"
+        style={seg(value === 'grid')}
+      >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <rect x="3" y="3" width="8" height="8" rx="1.6" />
           <rect x="13" y="3" width="8" height="8" rx="1.6" />
@@ -985,7 +1072,13 @@ export function ViewToggle({
           <rect x="13" y="13" width="8" height="8" rx="1.6" />
         </svg>
       </button>
-      <button type="button" onClick={() => onChange('list')} title="List view" aria-label="List view" style={seg(value === 'list')}>
+      <button
+        type="button"
+        onClick={() => onChange('list')}
+        title="List view"
+        aria-label="List view"
+        style={seg(value === 'list')}
+      >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <rect x="3" y="4" width="18" height="3" rx="1.4" />
           <rect x="3" y="10.5" width="18" height="3" rx="1.4" />
@@ -1093,7 +1186,13 @@ export function Dot({ color, title, size = 6 }: { color: string; title?: string;
   return (
     <span
       title={title}
-      style={{ width: `${size}px`, height: `${size}px`, flex: 'none', borderRadius: '50%', background: color }}
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        flex: 'none',
+        borderRadius: '50%',
+        background: color,
+      }}
     />
   );
 }
@@ -1152,7 +1251,13 @@ export function Mono({
   return (
     <span
       title={title}
-      style={{ ...CLIP, fontSize: '11.5px', fontFamily: MONO, color: color ?? C.textMuted, minWidth: 0 }}
+      style={{
+        ...CLIP,
+        fontSize: '11.5px',
+        fontFamily: MONO,
+        color: color ?? C.textMuted,
+        minWidth: 0,
+      }}
     >
       {children}
     </span>
@@ -1160,7 +1265,15 @@ export function Mono({
 }
 
 /** Bordered mono chip — namespaces in card footers and table cells. */
-export function Chip({ C, children, title }: { C: EvoCloudPalette; children: React.ReactNode; title?: string }) {
+export function Chip({
+  C,
+  children,
+  title,
+}: {
+  C: EvoCloudPalette;
+  children: React.ReactNode;
+  title?: string;
+}) {
   return (
     <span
       title={title}
@@ -1195,7 +1308,15 @@ export interface Stat {
   route?: string;
 }
 
-export function StatGrid({ C, stats, min = '168px' }: { C: EvoCloudPalette; stats: Stat[]; min?: string }) {
+export function StatGrid({
+  C,
+  stats,
+  min = '168px',
+}: {
+  C: EvoCloudPalette;
+  stats: Stat[];
+  min?: string;
+}) {
   return (
     <div
       style={{
@@ -1232,7 +1353,15 @@ export function StatGrid({ C, stats, min = '168px' }: { C: EvoCloudPalette; stat
               {s.value}
             </div>
             {s.sub !== undefined && (
-              <div style={{ ...NUMERIC, ...CLIP, fontSize: '11.5px', fontFamily: MONO, color: C.textDimmer }}>
+              <div
+                style={{
+                  ...NUMERIC,
+                  ...CLIP,
+                  fontSize: '11.5px',
+                  fontFamily: MONO,
+                  color: C.textDimmer,
+                }}
+              >
                 {s.sub}
               </div>
             )}
@@ -1420,10 +1549,21 @@ export interface KeyValue {
 
 export function KeyValues({ C, rows }: { C: EvoCloudPalette; rows: KeyValue[] }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 14px', alignItems: 'baseline' }}>
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'auto 1fr',
+        gap: '6px 14px',
+        alignItems: 'baseline',
+      }}
+    >
       {rows.map(row => (
         <React.Fragment key={row.k}>
-          <span style={{ fontSize: '11px', fontFamily: MONO, color: C.textDim, whiteSpace: 'nowrap' }}>{row.k}</span>
+          <span
+            style={{ fontSize: '11px', fontFamily: MONO, color: C.textDim, whiteSpace: 'nowrap' }}
+          >
+            {row.k}
+          </span>
           <span
             style={{
               fontSize: '12px',
@@ -1488,7 +1628,6 @@ export function shortRevision(revision?: string | null): string {
   const digest = revision.slice(at + 1).replace(/^[a-z0-9]+:/i, '');
   return `${tag}@${digest.slice(0, 7)}`;
 }
-
 
 /* -------------------------------------------------------------- side panel */
 
@@ -1600,10 +1739,7 @@ export function SidePanel({
       {/* Clicking away closes, the same as Escape. Deliberately unpainted:
           Headlamp's drawer dims nothing, and a scrim here would darken a page
           the panel is meant to be read alongside. */}
-      <div
-        onClick={onClose}
-        style={{ position: 'fixed', inset: `${top}px 0 0 0`, zIndex: 1200 }}
-      />
+      <div onClick={onClose} style={{ position: 'fixed', inset: `${top}px 0 0 0`, zIndex: 1200 }} />
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -1667,7 +1803,15 @@ export function SidePanel({
               cursor: 'pointer',
             }}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+            >
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
