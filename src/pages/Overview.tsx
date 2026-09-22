@@ -14,34 +14,51 @@
  * {@link SECTIONS} is the extension point. A future section is a new entry
  * there plus its route in index.tsx — this file needs no other edit, which is
  * the whole reason the cards are generated from data instead of written out.
+ *
+ * Two of those sections are conditional. Every cluster has custom resources and
+ * something that publishes an app, so those cards always apply; KubeVela may
+ * genuinely not be installed, and advertising two pages that can only report
+ * nothing would make the Overview a worse account of the cluster rather than a
+ * fuller one. They appear when the Application CRD answers, and not otherwise.
+ *
+ * Tiles carry a ring where a real proportion exists and only there — see the
+ * note on `Stat.ratio` in ui/chrome.tsx for why a grand total does not get one.
  */
 import { K8s, Router } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { appsFromAnnotations, HTTPRoute, HTTPRouteLike } from '../k8s/annotatedApps';
+import { addonOf, appHealth, Application, componentsOf } from '../k8s/kubevela';
 import { AppEndpoint, IngressLike, LegacyPublishedApp } from '../k8s/publishedApp';
 import {
   allNotFound,
   Chip,
+  EvoPage,
   firstRealError,
   isForbidden,
+  isNotFound,
+  ListQuery,
   Notice,
   Panel,
+  queryError,
   Stat,
   StatGrid,
   usePalette,
-  EvoPage,
 } from '../ui/chrome';
 import { buildAppViews, groupsOf as appGroupsOf } from './appEndpoints/model';
-import { BarChart, Slice, StackedBar } from './overview/Charts';
 import { buildSchemaViews, groupsOf as schemaGroupsOf } from './crdSchemas/model';
 import { CRD_SCHEMAS_ROUTE } from './crdSchemas/routes';
+import { BarChart, Slice, StackedBar } from './overview/Charts';
 
 // Via the namespace, not `lib/lib/router` — see the note in ui/chrome.tsx.
 const { createRouteURL } = Router;
 
 /** Route name of the catalog, kept beside the one it is paired with. */
 const APP_ENDPOINTS_ROUTE = 'evocloud-app-endpoints';
+
+/** The two KubeVela sections, named here for the same reason. */
+const VELA_APPS_ROUTE = 'evocloud-vela-applications';
+const VELA_ADDONS_ROUTE = 'evocloud-vela-addons';
 
 /** A section of the plugin, as the Overview advertises it. */
 interface SectionCard {
@@ -69,6 +86,11 @@ export default function Overview() {
   const ingressQuery = K8s.ResourceClasses.Ingress.useList();
   const routeQuery = HTTPRoute.useList();
   const crdQuery = K8s.ResourceClasses.CustomResourceDefinition.useList();
+
+  // KubeVela, which unlike the rest may simply not be installed. A 404 here is
+  // an answer, not a failure, and it is what decides whether the two KubeVela
+  // sections are advertised at all.
+  const velaQuery = Application.useList() as unknown as ListQuery;
 
   const ingresses = React.useMemo(
     () =>
@@ -105,15 +127,49 @@ export default function Overview() {
 
   const schemas = React.useMemo(() => buildSchemaViews(crdQuery.items), [crdQuery.items]);
 
+  /** Counts the two KubeVela tiles and cards need, off the one list. */
+  const vela = React.useMemo(() => {
+    let running = 0;
+    let addons = 0;
+    let components = 0;
+
+    for (const item of velaQuery.items ?? []) {
+      const json = (item as any).jsonData ?? item;
+      if (appHealth(json).state === 'ready') {
+        running += 1;
+      }
+      if (addonOf(json)) {
+        addons += 1;
+      }
+      components += componentsOf(json).length;
+    }
+
+    return { total: (velaQuery.items ?? []).length, running, addons, components };
+  }, [velaQuery.items]);
+
+  /**
+   * Whether KubeVela is here at all.
+   *
+   * Held off until the query has settled: an unanswered list and an empty one
+   * are both zero, and letting the tiles appear on the first would flash two
+   * sections that are about to be withdrawn.
+   */
+  const velaInstalled = !velaQuery.isLoading && !isNotFound(queryError(velaQuery));
+
   const appQueries = [appQuery, legacyQuery, ingressQuery, routeQuery];
   const loading =
     [...appQueries, crdQuery].some(q => q.isLoading) && apps.length === 0 && schemas.length === 0;
-  const error = firstRealError([...appQueries, crdQuery]);
+  // KubeVela joins the error list but not the loading one: a 404 from it is
+  // handled above, and anything else it reports is a genuine problem worth
+  // showing — but the page must not wait on a CRD that may not exist.
+  const error = firstRealError([...appQueries, crdQuery, velaQuery]);
 
   const byResource = apps.filter(a => a.source === 'Resource').length;
   const byAnnotation = apps.length - byResource;
   const unreachable = apps.filter(a => !a.link.url).length;
+  const reachable = apps.length - unreachable;
   const restricted = apps.filter(a => a.restricted).length;
+  const namespaced = schemas.filter(s => s.namespaced).length;
 
   /**
    * Schemas per API group, largest first.
@@ -168,40 +224,71 @@ export default function Overview() {
     {
       label: 'Applications',
       value: apps.length,
-      sub: appGroups === 1 ? '1 group' : `${appGroups} groups`,
+      sub: `${reachable} reachable`,
       route: APP_ENDPOINTS_ROUTE,
+      ratio: { value: reachable, total: apps.length, of: 'reachable' },
     },
     {
       label: 'From annotations',
       value: byAnnotation,
       sub: 'Ingress · HTTPRoute',
       tone: byAnnotation > 0 ? C.brand : undefined,
+      ratio: { value: byAnnotation, total: apps.length, of: 'from annotations' },
     },
     {
       label: 'From resources',
       value: byResource,
       sub: 'AppEndpoint',
       tone: byResource > 0 ? C.brand : undefined,
+      ratio: { value: byResource, total: apps.length, of: 'from resources' },
     },
     {
       label: 'Network restricted',
       value: restricted,
       sub: restricted === 1 ? '1 of ' + apps.length : `${restricted} of ${apps.length}`,
       tone: restricted > 0 ? C.gold : undefined,
+      ratio: { value: restricted, total: apps.length, of: 'network restricted' },
     },
     {
       label: 'Without a URL',
       value: unreachable,
       sub: 'published, unreachable',
       tone: unreachable > 0 ? C.danger : C.healthy,
+      ratio: { value: unreachable, total: apps.length, of: 'without a URL' },
     },
     {
       label: 'CRD schemas',
       value: schemas.length,
-      sub: apiGroups === 1 ? '1 API group' : `${apiGroups} API groups`,
+      // One figure, not two: the tile is narrower than it was now that it
+      // carries a ring, and the group count is already on the card below and in
+      // the chart beside it.
+      sub: `${namespaced} namespaced`,
       route: CRD_SCHEMAS_ROUTE,
+      ratio: { value: namespaced, total: schemas.length, of: 'namespaced' },
     },
   ];
+
+  if (velaInstalled) {
+    stats.push(
+      {
+        label: 'KubeVela apps',
+        value: vela.total,
+        sub: `${vela.running} running`,
+        route: VELA_APPS_ROUTE,
+        tone: vela.total > 0 && vela.running === vela.total ? C.healthy : undefined,
+        ratio: { value: vela.running, total: vela.total, of: 'running' },
+      },
+      {
+        label: 'Platform addons',
+        value: vela.addons,
+        // Of the KubeVela applications, not of the catalog: the Overview holds
+        // to the cluster and does not reach out to a registry to fill a tile.
+        sub: `of ${vela.total} ${vela.total === 1 ? 'application' : 'applications'}`,
+        route: VELA_ADDONS_ROUTE,
+        ratio: { value: vela.addons, total: vela.total, of: 'installed by an addon' },
+      }
+    );
+  }
 
   const SECTIONS: SectionCard[] = [
     {
@@ -214,6 +301,9 @@ export default function Overview() {
         <>
           <Chip C={C}>{byAnnotation} annotated</Chip>
           <Chip C={C}>{byResource} declared</Chip>
+          {/* Moved down from the tile, which no longer has room for it beside
+              the ring — the figure is worth keeping, just not up there. */}
+          <Chip C={C}>{appGroups === 1 ? '1 group' : `${appGroups} groups`}</Chip>
         </>
       ),
     },
@@ -226,6 +316,35 @@ export default function Overview() {
       detail: <Chip C={C}>{apiGroups} API groups</Chip>,
     },
   ];
+
+  if (velaInstalled) {
+    SECTIONS.push(
+      {
+        route: VELA_APPS_ROUTE,
+        // Spelled out here, unlike in the sidebar, where the KubeVela heading
+        // above it already supplies the qualifier.
+        title: 'KubeVela Applications',
+        blurb: 'What KubeVela has delivered here, and the settings behind every part of it.',
+        count: vela.total,
+        unit: 'application',
+        detail: (
+          <>
+            <Chip C={C}>{vela.running} running</Chip>
+            <Chip C={C}>{vela.components} components</Chip>
+            {vela.addons > 0 && <Chip C={C}>{vela.addons} from addons</Chip>}
+          </>
+        ),
+      },
+      {
+        route: VELA_ADDONS_ROUTE,
+        title: 'Addons',
+        blurb: 'The capabilities KubeVela can install, and which of them this cluster has.',
+        count: vela.addons,
+        unit: 'addon',
+        detail: <Chip C={C}>installed on this cluster</Chip>,
+      }
+    );
+  }
 
   let body: React.ReactNode;
   if (loading) {
@@ -249,7 +368,9 @@ export default function Overview() {
   } else {
     body = (
       <>
-        <StatGrid C={C} stats={stats} />
+        {/* Wider than the default: a tile now carries a ring beside the figure,
+            and at 168px the label underneath it starts to wrap. */}
+        <StatGrid C={C} stats={stats} min="220px" />
 
         {(sourcesUsed > 1 || schemasByGroup.length > 1) && (
           <div

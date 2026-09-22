@@ -254,11 +254,14 @@ export function CopyButton({
   C,
   value,
   label,
+  what = 'URL',
 }: {
   C: EvoCloudPalette;
   value: string;
   /** Names the thing being copied, for the accessible label. */
   label: string;
+  /** What kind of thing the value is, when it is not a URL. */
+  what?: string;
 }) {
   const [state, setState] = React.useState<'idle' | 'ok' | 'fail'>('idle');
 
@@ -276,9 +279,13 @@ export function CopyButton({
       className="evo-iconbtn"
       onClick={async () => setState((await writeClipboard(value)) ? 'ok' : 'fail')}
       title={
-        state === 'ok' ? 'Copied' : state === 'fail' ? 'Copy blocked by the browser' : 'Copy URL'
+        state === 'ok'
+          ? 'Copied'
+          : state === 'fail'
+          ? 'Copy blocked by the browser'
+          : `Copy ${what}`
       }
-      aria-label={`Copy URL for ${label}`}
+      aria-label={`Copy ${what} for ${label}`}
       style={{
         ...ICON_BUTTON,
         color: state === 'ok' ? C.healthy : state === 'fail' ? C.danger : C.textDim,
@@ -1297,6 +1304,94 @@ export function Chip({
 
 /* ------------------------------------------------------------------- stats */
 
+/**
+ * A proportion drawn as an arc — the ring on a stat tile.
+ *
+ * Deliberately the smallest chart in the plugin: one measure against its whole,
+ * which is the only thing a ring reads well. It is an ornament on a figure that
+ * is already written out beside it, never the only place the number appears —
+ * the arc gives the tile its shape at a glance and the digits give it its
+ * value, and neither is load-bearing alone.
+ *
+ * The track is `surfaceSunken`, the same step off the surface the bar charts
+ * use for the slot a bar grows in, so an empty ring still reads as a ring
+ * rather than as a missing one.
+ */
+export function Ring({
+  C,
+  value,
+  total,
+  color,
+  size = 40,
+  stroke = 4.5,
+  label,
+}: {
+  C: EvoCloudPalette;
+  value: number;
+  total: number;
+  /** Arc colour. Defaults to the brand accent. */
+  color?: string;
+  size?: number;
+  stroke?: number;
+  /** Sentence for the tooltip and screen readers, e.g. "3 of 12 reachable". */
+  label: string;
+}) {
+  const fraction = total > 0 ? Math.min(Math.max(value / total, 0), 1) : 0;
+  const percent = Math.round(fraction * 100);
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const centre = size / 2;
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      role="img"
+      aria-label={`${label} — ${percent}%`}
+    >
+      <title>{`${label} — ${percent}%`}</title>
+      <circle
+        cx={centre}
+        cy={centre}
+        r={radius}
+        fill="none"
+        stroke={C.surfaceSunken}
+        strokeWidth={stroke}
+      />
+      {/* Nothing is drawn at zero: a round cap on an empty arc leaves a dot,
+          which reads as a value where there is none. */}
+      {fraction > 0 && (
+        <circle
+          cx={centre}
+          cy={centre}
+          r={radius}
+          fill="none"
+          stroke={color ?? C.brand}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={`${circumference * fraction} ${circumference}`}
+          transform={`rotate(-90 ${centre} ${centre})`}
+        />
+      )}
+      <text
+        x={centre}
+        y={centre}
+        textAnchor="middle"
+        dominantBaseline="central"
+        style={{
+          ...NUMERIC,
+          fontSize: `${Math.round(size * 0.28)}px`,
+          fontWeight: 700,
+          fill: color ?? C.textMuted,
+        }}
+      >
+        {percent}
+      </text>
+    </svg>
+  );
+}
+
 export interface Stat {
   label: string;
   value: React.ReactNode;
@@ -1306,6 +1401,20 @@ export interface Stat {
   tone?: string;
   /** Route name to link the whole tile to, e.g. `evocloud-gitops`. */
   route?: string;
+  /**
+   * A proportion to draw as a {@link Ring} beside the figure.
+   *
+   * Only set where one genuinely exists. A tile whose number is a grand total
+   * has no whole to be a part of, and a ring on it would either be permanently
+   * full or measure something invented — so those tiles keep the figure alone,
+   * and the row reads as a mix on purpose.
+   */
+  ratio?: {
+    value: number;
+    total: number;
+    /** What the arc measures, for the tooltip: "reachable", "running". */
+    of: string;
+  };
 }
 
 export function StatGrid({
@@ -1327,8 +1436,16 @@ export function StatGrid({
       }}
     >
       {stats.map(s => {
-        const inner = (
-          <>
+        const figure = (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              minWidth: 0,
+              flex: 1,
+            }}
+          >
             <div
               style={{
                 fontSize: '10px',
@@ -1365,13 +1482,32 @@ export function StatGrid({
                 {s.sub}
               </div>
             )}
+          </div>
+        );
+
+        const inner = (
+          <>
+            {figure}
+            {s.ratio && (
+              <Ring
+                C={C}
+                value={s.ratio.value}
+                total={s.ratio.total}
+                color={s.tone}
+                label={`${s.ratio.value} of ${s.ratio.total} ${s.ratio.of}`}
+              />
+            )}
           </>
         );
 
+        // A row rather than a column, so a ring sits beside the figure. With no
+        // ring the single flex child fills the tile and this lays out exactly
+        // as the column did, which is what keeps the pages that pass no ratio
+        // looking untouched.
         const style: React.CSSProperties = {
           display: 'flex',
-          flexDirection: 'column',
-          gap: '6px',
+          alignItems: 'center',
+          gap: '12px',
           minWidth: 0,
           padding: '13px 14px 14px',
           background: C.surface,
