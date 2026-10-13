@@ -16,7 +16,7 @@ import { useTheme } from '@mui/material/styles';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Link as RouterLink } from 'react-router-dom';
-import { EVOCLOUD_LOGO_PNG } from '../icons/evocloudLogo';
+import { EVOCLOUD_LOGO } from '../icons/evocloudLogo';
 import { EVOCLOUD_DARK, EVOCLOUD_LIGHT, EvoCloudPalette } from '../palette';
 import { derivePalette, evoCloudThemeActive } from './themePalette';
 
@@ -747,7 +747,7 @@ export function EvoPage({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             {/* Decorative — the breadcrumb beside it already reads "EvoCloud". */}
-            <img src={EVOCLOUD_LOGO_PNG} width={52} height={52} alt="" style={{ flex: 'none' }} />
+            <img src={EVOCLOUD_LOGO} width={52} height={52} alt="" style={{ flex: 'none' }} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div
                 style={{
