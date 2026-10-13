@@ -25,11 +25,14 @@
  * note on `Stat.ratio` in ui/chrome.tsx for why a grand total does not get one.
  */
 import { K8s, Router } from '@kinvolk/headlamp-plugin/lib';
+import { useCluster } from '@kinvolk/headlamp-plugin/lib/k8s';
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { appsFromAnnotations, HTTPRoute, HTTPRouteLike } from '../k8s/annotatedApps';
+import { FrameworkScore, scanTotals, scoreAllFrameworks } from '../k8s/kubescape';
 import { addonOf, appHealth, Application, componentsOf } from '../k8s/kubevela';
 import { AppEndpoint, IngressLike, LegacyPublishedApp } from '../k8s/publishedApp';
+import { EvoCloudPalette } from '../palette';
 import {
   allNotFound,
   Chip,
@@ -46,6 +49,7 @@ import {
   usePalette,
 } from '../ui/chrome';
 import { buildAppViews, groupsOf as appGroupsOf } from './appEndpoints/model';
+import { COMPLIANCE_ROUTE, scoreColor, useScanResults } from './compliance/useScanResults';
 import { buildSchemaViews, groupsOf as schemaGroupsOf } from './crdSchemas/model';
 import { CRD_SCHEMAS_ROUTE } from './crdSchemas/routes';
 import { BarChart, Slice, StackedBar } from './overview/Charts';
@@ -73,6 +77,60 @@ interface SectionCard {
   unit: string;
   /** Second line of detail — a breakdown, a caveat. */
   detail?: React.ReactNode;
+}
+
+/**
+ * One bar per framework, its length and colour the score.
+ *
+ * Not the shared BarChart: that one reads each bar as a share of the whole,
+ * which a set of independent percentages is not.
+ */
+function FrameworkBars({ C, scores }: { C: EvoCloudPalette; scores: FrameworkScore[] }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      {scores.map(fs => {
+        const score = Math.round(fs.score);
+        const color = scoreColor(C, fs.score);
+        return (
+          <div
+            key={fs.framework.name}
+            title={`${fs.framework.label} — ${score}% · ${fs.failingControls} failing controls`}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 150px) 1fr 40px',
+              alignItems: 'center',
+              gap: '10px',
+              fontSize: '12.5px',
+            }}
+          >
+            <span style={{ color: C.textMuted, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+              {fs.framework.label}
+            </span>
+            <div
+              style={{
+                height: '8px',
+                borderRadius: '4px',
+                background: C.surfaceSunken,
+                overflow: 'hidden',
+              }}
+            >
+              <div style={{ width: `${score}%`, height: '100%', background: color }} />
+            </div>
+            <span
+              style={{
+                textAlign: 'right',
+                fontWeight: 700,
+                fontVariantNumeric: 'tabular-nums',
+                color,
+              }}
+            >
+              {score}%
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function Overview() {
@@ -155,6 +213,24 @@ export default function Overview() {
    * sections that are about to be withdrawn.
    */
   const velaInstalled = !velaQuery.isLoading && !isNotFound(queryError(velaQuery));
+
+  // Kubescape's scan results — shared with the Compliance page and cached, as
+  // they take seconds to read. The rest of the Overview never waits on them:
+  // compliance tiles join once scores exist, and nothing is shown for it at all
+  // on a cluster without Kubescape.
+  const cluster = useCluster() ?? '';
+  const scan = useScanResults(cluster);
+  const kubescapeInstalled = scan.phase !== 'not-installed';
+  const scanned = scan.phase === 'ready' ? scan.snapshot?.resources ?? [] : [];
+  const frameworkScores = React.useMemo(
+    () => (scanned.length ? scoreAllFrameworks(scanned) : []),
+    [scanned]
+  );
+  const compliance = React.useMemo(() => scanTotals(scanned), [scanned]);
+  const weakest = frameworkScores.reduce<FrameworkScore | null>(
+    (low, fs) => (!low || fs.score < low.score ? fs : low),
+    null
+  );
 
   const appQueries = [appQuery, legacyQuery, ingressQuery, routeQuery];
   const loading =
@@ -290,6 +366,34 @@ export default function Overview() {
     );
   }
 
+  if (weakest) {
+    const score = Math.round(weakest.score);
+    stats.push(
+      {
+        // The weakest framework rather than an average: averaging NSA with CIS
+        // gives a number no framework actually has.
+        label: 'Compliance',
+        value: `${score}%`,
+        sub: `lowest · ${weakest.framework.label}`,
+        route: COMPLIANCE_ROUTE,
+        tone: scoreColor(C, weakest.score),
+        ratio: { value: score, total: 100, of: `${weakest.framework.label} score` },
+      },
+      {
+        label: 'Failing checks',
+        value: compliance.failingResources,
+        sub: `of ${compliance.resources} resources scanned`,
+        route: COMPLIANCE_ROUTE,
+        tone: compliance.failingResources > 0 ? C.danger : C.healthy,
+        ratio: {
+          value: compliance.failingResources,
+          total: compliance.resources,
+          of: 'resources failing a check',
+        },
+      }
+    );
+  }
+
   const SECTIONS: SectionCard[] = [
     {
       route: APP_ENDPOINTS_ROUTE,
@@ -346,6 +450,31 @@ export default function Overview() {
     );
   }
 
+  if (kubescapeInstalled) {
+    let detail: React.ReactNode;
+    if (frameworkScores.length) {
+      detail = frameworkScores.map(fs => (
+        <Chip C={C} key={fs.framework.name}>
+          {fs.framework.label} {Math.round(fs.score)}%
+        </Chip>
+      ));
+    } else if (scan.phase === 'loading') {
+      detail = <Chip C={C}>reading Kubescape scans…</Chip>;
+    } else if (scan.phase === 'ready') {
+      detail = <Chip C={C}>no scan results yet</Chip>;
+    } else {
+      detail = <Chip C={C}>scan results unavailable</Chip>;
+    }
+    SECTIONS.push({
+      route: COMPLIANCE_ROUTE,
+      title: 'Compliance',
+      blurb: 'How the cluster scores against NSA, MITRE, CIS and SOC 2, from Kubescape scans.',
+      count: frameworkScores.length ? frameworkScores.length : null,
+      unit: 'framework',
+      detail,
+    });
+  }
+
   let body: React.ReactNode;
   if (loading) {
     body = (
@@ -372,7 +501,7 @@ export default function Overview() {
             and at 168px the label underneath it starts to wrap. */}
         <StatGrid C={C} stats={stats} min="220px" />
 
-        {(sourcesUsed > 1 || schemasByGroup.length > 1) && (
+        {(sourcesUsed > 1 || schemasByGroup.length > 1 || frameworkScores.length > 0) && (
           <div
             style={{
               display: 'grid',
@@ -394,6 +523,14 @@ export default function Overview() {
               <Panel C={C} caption="Schemas by API group">
                 <div style={{ padding: '12px 16px 14px' }}>
                   <BarChart C={C} rows={schemasByGroup} unit="schema" />
+                </div>
+              </Panel>
+            )}
+
+            {frameworkScores.length > 0 && (
+              <Panel C={C} caption="Compliance by framework">
+                <div style={{ padding: '14px 16px' }}>
+                  <FrameworkBars C={C} scores={frameworkScores} />
                 </div>
               </Panel>
             )}

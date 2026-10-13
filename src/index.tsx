@@ -19,6 +19,8 @@ import { registerRoute, registerSidebarEntry } from '@kinvolk/headlamp-plugin/li
 import React from 'react';
 import { EVOCLOUD_ICON_MONO } from './icons/evocloud';
 import AppEndpoints from './pages/AppEndpoints';
+import Compliance from './pages/Compliance';
+import { COMPLIANCE_ROUTE } from './pages/compliance/useScanResults';
 import CrdSchemaDetail from './pages/CrdSchemaDetail';
 import CrdSchemas from './pages/CrdSchemas';
 import { CRD_SCHEMA_ROUTE, CRD_SCHEMAS_ROUTE } from './pages/crdSchemas/routes';
@@ -165,4 +167,20 @@ registerRoute({
   name: CRD_SCHEMA_ROUTE,
   exact: true,
   component: () => <CrdSchemaDetail />,
+});
+
+// 6. Child Item: Compliance — framework scores from Kubescape's scans
+registerSidebarEntry({
+  parent: 'evocloud',
+  name: COMPLIANCE_ROUTE,
+  label: 'Compliance',
+  url: '/evocloud/compliance',
+});
+
+registerRoute({
+  path: '/evocloud/compliance',
+  sidebar: COMPLIANCE_ROUTE,
+  name: COMPLIANCE_ROUTE,
+  exact: true,
+  component: () => <Compliance />,
 });
