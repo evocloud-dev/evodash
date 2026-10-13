@@ -1421,10 +1421,16 @@ export function StatGrid({
   C,
   stats,
   min = '168px',
+  spacing = '26px',
 }: {
   C: EvoCloudPalette;
   stats: Stat[];
   min?: string;
+  /**
+   * Space below the row. A row that continues straight into another one sets
+   * it to the grid's own 12px gap, so the two read as one block of tiles.
+   */
+  spacing?: string;
 }) {
   return (
     <div
@@ -1432,7 +1438,7 @@ export function StatGrid({
         display: 'grid',
         gridTemplateColumns: `repeat(auto-fit, minmax(${min}, 1fr))`,
         gap: '12px',
-        marginBottom: '26px',
+        marginBottom: spacing,
       }}
     >
       {stats.map(s => {

@@ -29,7 +29,7 @@ import { useCluster } from '@kinvolk/headlamp-plugin/lib/k8s';
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { appsFromAnnotations, HTTPRoute, HTTPRouteLike } from '../k8s/annotatedApps';
-import { FrameworkScore, scanTotals, scoreAllFrameworks } from '../k8s/kubescape';
+import { cveTotals, FrameworkScore, scanTotals, scoreAllFrameworks } from '../k8s/kubescape';
 import { addonOf, appHealth, Application, componentsOf } from '../k8s/kubevela';
 import { AppEndpoint, IngressLike, LegacyPublishedApp } from '../k8s/publishedApp';
 import { EvoCloudPalette } from '../palette';
@@ -49,7 +49,12 @@ import {
   usePalette,
 } from '../ui/chrome';
 import { buildAppViews, groupsOf as appGroupsOf } from './appEndpoints/model';
-import { COMPLIANCE_ROUTE, scoreColor, useScanResults } from './compliance/useScanResults';
+import {
+  COMPLIANCE_ROUTE,
+  cveStats,
+  scoreColor,
+  useScanResults,
+} from './compliance/useScanResults';
 import { buildSchemaViews, groupsOf as schemaGroupsOf } from './crdSchemas/model';
 import { CRD_SCHEMAS_ROUTE } from './crdSchemas/routes';
 import { BarChart, Slice, StackedBar } from './overview/Charts';
@@ -380,7 +385,7 @@ export default function Overview() {
         ratio: { value: score, total: 100, of: `${weakest.framework.label} score` },
       },
       {
-        label: 'Failing checks',
+        label: 'Failing resources',
         value: compliance.failingResources,
         sub: `of ${compliance.resources} resources scanned`,
         route: COMPLIANCE_ROUTE,
@@ -390,7 +395,8 @@ export default function Overview() {
           total: compliance.resources,
           of: 'resources failing a check',
         },
-      }
+      },
+      ...cveStats(C, scan.snapshot?.images ?? null, COMPLIANCE_ROUTE)
     );
   }
 
@@ -453,11 +459,22 @@ export default function Overview() {
   if (kubescapeInstalled) {
     let detail: React.ReactNode;
     if (frameworkScores.length) {
-      detail = frameworkScores.map(fs => (
-        <Chip C={C} key={fs.framework.name}>
-          {fs.framework.label} {Math.round(fs.score)}%
-        </Chip>
-      ));
+      const images = scan.snapshot?.images;
+      const cves = images?.length ? cveTotals(images) : null;
+      detail = (
+        <>
+          {frameworkScores.map(fs => (
+            <Chip C={C} key={fs.framework.name}>
+              {fs.framework.label} {Math.round(fs.score)}%
+            </Chip>
+          ))}
+          {cves && (
+            <Chip C={C}>
+              {cves.critical} critical · {cves.high} high CVEs
+            </Chip>
+          )}
+        </>
+      );
     } else if (scan.phase === 'loading') {
       detail = <Chip C={C}>reading Kubescape scans…</Chip>;
     } else if (scan.phase === 'ready') {

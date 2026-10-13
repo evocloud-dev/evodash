@@ -9,12 +9,26 @@
  */
 
 import React from 'react';
-import { fetchScanSummaries, ScannedResource, toScannedResources } from '../../k8s/kubescape';
+import {
+  cveTotals,
+  fetchScanSummaries,
+  fetchVulnerabilitySummaries,
+  ImageVulnerabilities,
+  ScannedResource,
+  toImageVulnerabilities,
+  toScannedResources,
+} from '../../k8s/kubescape';
 import { EvoCloudPalette } from '../../palette';
-import { isForbidden, isNotFound } from '../../ui/chrome';
+import { isForbidden, isNotFound, Stat } from '../../ui/chrome';
 
 export interface Snapshot {
   resources: ScannedResource[];
+  /**
+   * Image vulnerability results, or null when they could not be read. Kept
+   * apart from the configuration results so a failure here costs the CVE
+   * figures only, not the compliance scores.
+   */
+  images: ImageVulnerabilities[] | null;
   readAt: number;
 }
 
@@ -31,9 +45,16 @@ const inFlight = new Map<string, Promise<Snapshot>>();
 function readSnapshot(cluster: string, onProgress: (n: number) => void): Promise<Snapshot> {
   let pending = inFlight.get(cluster);
   if (!pending) {
-    pending = fetchScanSummaries(onProgress)
-      .then(summaries => {
-        const next = { resources: toScannedResources(summaries), readAt: Date.now() };
+    pending = Promise.all([
+      fetchScanSummaries(onProgress),
+      fetchVulnerabilitySummaries().catch(() => null),
+    ])
+      .then(([summaries, vulnerabilities]) => {
+        const next = {
+          resources: toScannedResources(summaries),
+          images: vulnerabilities ? toImageVulnerabilities(vulnerabilities) : null,
+          readAt: Date.now(),
+        };
         snapshots.set(cluster, next);
         return next;
       })
@@ -86,6 +107,45 @@ export function useScanResults(cluster: string) {
   }, [cluster, nonce]);
 
   return { snapshot, phase, read, error, fetching, refresh: () => setNonce(n => n + 1) };
+}
+
+/**
+ * The Critical CVEs and High CVEs tiles, shared by the Compliance page and the
+ * Overview so both say the same thing the same way.
+ *
+ * The sub-line carries the runtime figure when Kubescape has one — how many of
+ * the CVEs sit in code a workload actually loads — because that is the part of
+ * a large CVE count someone can act on first.
+ */
+export function cveStats(
+  C: EvoCloudPalette,
+  images: ImageVulnerabilities[] | null,
+  route?: string
+): Stat[] {
+  const tile = (label: string, severity: 'critical' | 'high', tone: string): Stat => {
+    if (images === null) {
+      return { label, value: '—', sub: 'image scans unavailable', route };
+    }
+    if (images.length === 0) {
+      return { label, value: '—', sub: 'no images scanned yet', route };
+    }
+    const totals = cveTotals(images);
+    const all = severity === 'critical' ? totals.critical : totals.high;
+    const relevant = severity === 'critical' ? totals.relevantCritical : totals.relevantHigh;
+    const known = totals.relevancePending < totals.images;
+    const across = `across ${totals.images} image${totals.images === 1 ? '' : 's'}`;
+    return {
+      label,
+      value: all,
+      sub: known ? `${relevant} in running code · ${across}` : across,
+      tone: all > 0 ? tone : C.healthy,
+      route,
+      ...(known && all > 0
+        ? { ratio: { value: relevant, total: all, of: 'in code that runs' } }
+        : {}),
+    };
+  };
+  return [tile('Critical CVEs', 'critical', C.danger), tile('High CVEs', 'high', C.gold)];
 }
 
 /** Score colour: green from 80, gold from 60, red below. */

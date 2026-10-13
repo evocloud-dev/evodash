@@ -40,7 +40,7 @@ import {
   StatGrid,
   usePalette,
 } from '../ui/chrome';
-import { scoreColor, useScanResults } from './compliance/useScanResults';
+import { cveStats, scoreColor, useScanResults } from './compliance/useScanResults';
 
 /* ---------------------------------------------------------------- install */
 
@@ -497,42 +497,96 @@ export default function Compliance() {
     );
   } else {
     const failed = totals.failedChecks;
+    const checks = totals.checks;
+    const images = snapshot?.images ?? null;
     body = (
       <>
+        {/* Three rows of four, so the tiles line up: every check by outcome,
+            then what was scanned and the image vulnerabilities, then failed
+            checks by severity. A check is one control tested against one
+            resource — the unit KubeStellar's console counts too. */}
         <StatGrid
           C={C}
+          min="230px"
+          spacing="12px"
           stats={[
-            { label: 'Resources', value: totals.resources, sub: 'scanned by Kubescape' },
             {
-              label: 'Failing',
-              value: totals.failingResources,
-              sub: `of ${totals.resources} resources`,
-              tone: totals.failingResources ? C.danger : C.healthy,
+              label: 'Total checks',
+              value: checks.total,
+              sub: `on ${totals.resources} resources`,
+            },
+            {
+              label: 'Passed',
+              value: checks.passed,
+              sub: `of ${checks.total} checks`,
+              tone: C.healthy,
+              ratio: { value: checks.passed, total: checks.total, of: 'checks passed' },
+            },
+            {
+              label: 'Failed',
+              value: checks.failed,
+              sub: `across ${totals.failingResources} resources`,
+              tone: checks.failed ? C.danger : C.healthy,
+              ratio: { value: checks.failed, total: checks.total, of: 'checks failed' },
+            },
+            {
+              label: 'Skipped',
+              value: checks.skipped,
+              // Kubescape skips a control it cannot run as configured.
+              sub: 'need configuration to run',
+              tone: checks.skipped ? C.gold : undefined,
+            },
+          ]}
+        />
+        <StatGrid
+          C={C}
+          min="230px"
+          spacing="12px"
+          stats={[
+            {
+              label: 'Resources',
+              value: totals.resources,
+              sub: `${totals.failingResources} failing at least one check`,
               ratio: {
                 value: totals.failingResources,
                 total: totals.resources,
                 of: 'resources failing at least one check',
               },
+              tone: totals.failingResources ? C.danger : C.healthy,
             },
             {
-              label: 'Critical',
+              label: 'Images',
+              value: images ? images.length : '—',
+              sub: 'scanned for vulnerabilities',
+            },
+            // Image vulnerabilities sit beside the configuration results: the
+            // same operator finds both, and they answer different questions.
+            ...cveStats(C, images),
+          ]}
+        />
+        <StatGrid
+          C={C}
+          min="230px"
+          stats={[
+            {
+              label: 'Critical checks',
               value: failed.Critical,
-              sub: 'failed checks',
+              sub: 'failed',
               tone: failed.Critical ? C.danger : undefined,
             },
             {
-              label: 'High',
+              label: 'High checks',
               value: failed.High,
-              sub: 'failed checks',
+              sub: 'failed',
               tone: failed.High ? C.danger : undefined,
             },
             {
-              label: 'Medium',
+              label: 'Medium checks',
               value: failed.Medium,
-              sub: 'failed checks',
+              sub: 'failed',
               tone: failed.Medium ? C.gold : undefined,
             },
-            { label: 'Low', value: failed.Low, sub: 'failed checks' },
+            { label: 'Low checks', value: failed.Low, sub: 'failed' },
           ]}
         />
 
