@@ -20,7 +20,9 @@ import React from 'react';
 import { EVOCLOUD_ICON_MONO } from './icons/evocloud';
 import AppEndpoints from './pages/AppEndpoints';
 import Compliance from './pages/Compliance';
+import { COMPLIANCE_POLICIES_ROUTE } from './pages/compliance/useKyverno';
 import { COMPLIANCE_ROUTE } from './pages/compliance/useScanResults';
+import CompliancePolicies from './pages/CompliancePolicies';
 import CrdSchemaDetail from './pages/CrdSchemaDetail';
 import CrdSchemas from './pages/CrdSchemas';
 import { CRD_SCHEMA_ROUTE, CRD_SCHEMAS_ROUTE } from './pages/crdSchemas/routes';
@@ -169,18 +171,55 @@ registerRoute({
   component: () => <CrdSchemaDetail />,
 });
 
-// 6. Child Item: Compliance — framework scores from Kubescape's scans
+// 6. Child Group: Compliance — one heading over the two engines that report it
+//
+// A group for the same reasons as KubeVela above, and one more: the two pages
+// do not behave alike. Kubescape's results are a snapshot read on request,
+// with a Refresh button; Kyverno's are watched and move on their own. On one
+// page that button would refresh half of it.
+//
+// The children are named for what they answer rather than the engine behind
+// each. Kubescape's own Headlamp plugin, commonly installed beside this one,
+// already puts a "Kubescape" entry in the sidebar, and a second one here would
+// read as a duplicate of it.
+//
+// Frameworks keeps the address the single Compliance page had, so links to it
+// still land where they did.
 registerSidebarEntry({
   parent: 'evocloud',
-  name: COMPLIANCE_ROUTE,
+  name: 'evocloud-compliance',
   label: 'Compliance',
+  url: '/evocloud/compliance',
+});
+
+// 6a. Frameworks — Kubescape's scores against NSA, MITRE, CIS and SOC 2
+registerSidebarEntry({
+  parent: 'evocloud-compliance',
+  name: 'evocloud-compliance-frameworks',
+  label: 'Frameworks',
   url: '/evocloud/compliance',
 });
 
 registerRoute({
   path: '/evocloud/compliance',
-  sidebar: COMPLIANCE_ROUTE,
+  sidebar: 'evocloud-compliance-frameworks',
   name: COMPLIANCE_ROUTE,
   exact: true,
   component: () => <Compliance />,
+});
+
+// 6b. Policies — what Kyverno's policy reports found
+registerSidebarEntry({
+  parent: 'evocloud-compliance',
+  name: 'evocloud-compliance-policies',
+  label: 'Policies',
+  url: '/evocloud/compliance/policies',
+});
+
+registerRoute({
+  path: '/evocloud/compliance/policies',
+  sidebar: 'evocloud-compliance-policies',
+  name: COMPLIANCE_POLICIES_ROUTE,
+  exact: true,
+  component: () => <CompliancePolicies />,
 });

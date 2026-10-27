@@ -1,594 +1,403 @@
 /**
- * Compliance and policy posture.
+ * Compliance Policies — which of the platform's Kyverno policies the cluster's
+ * resources pass and fail.
  *
- * Three layers, most specific first:
+ * The other half of Compliance from the Frameworks page, and kept apart from it
+ * because it answers a different question. Kubescape asks how the cluster
+ * would fare against a framework someone else wrote; Kyverno reports on the
+ * rules this platform adopted, and whether it blocks violations or only
+ * records them. The two also behave differently: Kubescape's results are a
+ * snapshot read on request, Kyverno's are watched and move as it writes them.
  *
- * 1. Kyverno policies — what the cluster is supposed to enforce.
- * 2. Policy reports — what actually passed and failed. These are the
- *    `wgpolicyk8s.io` shared report format rather than a Kyverno type, so the
- *    section fills for any engine that writes it.
- * 3. Admission control — the ValidatingWebhookConfigurations and
- *    MutatingWebhookConfigurations that are the mechanism underneath. This is
- *    core Kubernetes, so it renders on every cluster, including ones with no
- *    policy engine at all — which is itself the compliance answer for such a
- *    cluster, and more useful than an empty page.
+ * Top to bottom: whether Kyverno is running at all, the totals, where in the
+ * cluster the failures sit, then the results themselves — by policy, or turned
+ * inside out by resource. Workload and system namespaces are kept apart
+ * throughout, because the platform's own components fail Pod Security by
+ * design and would otherwise drown out the failures someone can act on.
+ *
+ * The install commands mirror EvoCloud's own Kyverno roles: the kyverno chart
+ * as `kyverno-operator`, then kyverno-policies at the baseline Pod Security
+ * Standard with medium severity.
+ *
+ * This file is composition only. Scoring is in k8s/kyverno.ts, reading it in
+ * compliance/useKyverno.ts and useKyvernoEngine.ts, and the parts in the
+ * compliance/ folder beside them.
  */
-import MutatingWebhookConfiguration from '@kinvolk/headlamp-plugin/lib/lib/k8s/mutatingWebhookConfiguration';
-import ValidatingWebhookConfiguration from '@kinvolk/headlamp-plugin/lib/lib/k8s/validatingWebhookConfiguration';
-import { useTheme } from '@mui/material/styles';
+
 import React from 'react';
-import { Readiness, readiness, readyTone } from '../k8s/conditions';
+import { readyToEnforce, ResourceFailures, totalChecks } from '../k8s/kyverno';
+import { EvoCloudPalette } from '../palette';
 import {
-  addSummaries,
-  ClusterPolicy,
-  ClusterPolicyReport,
-  EMPTY_SUMMARY,
-  FailureAction,
-  failureAction,
-  matchedKinds,
-  Policy,
-  PolicyReport,
-  reportScope,
-  ReportSummary,
-  reportSummary,
-  ruleKinds,
-} from '../k8s/kyverno';
-import { EVOCLOUD_DARK, EVOCLOUD_LIGHT, EvoCloudPalette } from '../palette';
-import {
-  age,
-  allNotFound,
-  Chip,
   Code,
-  Column,
-  DataTable,
-  Dot,
   EvoPage,
   FilterSelect,
-  firstRealError,
   FolderIcon,
-  ListQuery,
+  GhostButton,
   LiveBadge,
-  Mono,
   Notice,
-  Pill,
-  SearchBox,
   SectionHeading,
+  Stat,
   StatGrid,
-  useRevision,
+  usePalette,
 } from '../ui/chrome';
+import { EngineStrip } from './compliance/EngineStrip';
+import { NamespacePanel } from './compliance/NamespacePanel';
+import { PolicyTable, sortPolicies } from './compliance/PolicyTable';
+import { ResourceTable } from './compliance/ResourceTable';
+import { InstallStep, InstallSteps, Segmented } from './compliance/shared';
+import { useKyverno } from './compliance/useKyverno';
+import { useKyvernoEngine } from './compliance/useKyvernoEngine';
 
-interface PolicyRow {
-  key: string;
-  kind: 'ClusterPolicy' | 'Policy';
-  name: string;
-  ns: string;
-  action: FailureAction;
-  rules: number;
-  ruleKinds: string[];
-  appliesTo: string[];
-  background: boolean;
-  ready: Readiness;
-  created?: string;
+const KYVERNO_INSTALL_DOCS = 'https://kyverno.io/docs/installation/';
+
+const INSTALL_KYVERNO: InstallStep = {
+  label: 'Install Kyverno',
+  command:
+    'helm upgrade --install kyverno-operator oci://ghcr.io/kyverno/charts/kyverno ' +
+    '--version 3.8.2 -n kyverno --create-namespace',
+};
+
+const INSTALL_POLICIES: InstallStep = {
+  label: 'Add the baseline Pod Security policies',
+  command:
+    'helm upgrade --install kyverno-policies oci://ghcr.io/kyverno/charts/kyverno-policies ' +
+    '--version 3.8.2 -n kyverno --set podSecurityStandard=baseline --set podSecuritySeverity=medium',
+};
+
+type View = 'policy' | 'resource';
+
+/** The by-resource filter: everything, one side of the split, or one namespace. */
+type Scope = 'all' | 'workloads' | 'system' | `ns:${string}`;
+
+function inScope(entry: ResourceFailures, scope: Scope): boolean {
+  if (scope === 'all') return true;
+  if (scope === 'workloads') return !entry.system;
+  if (scope === 'system') return entry.system;
+  return (entry.resource.namespace ?? '') === scope.slice(3);
 }
 
-interface ReportRow {
-  key: string;
-  kind: 'PolicyReport' | 'ClusterPolicyReport';
-  name: string;
-  ns: string;
-  scope: string;
-  summary: ReportSummary;
-  created?: string;
-}
-
-interface WebhookRow {
-  key: string;
-  kind: 'Validating' | 'Mutating';
-  name: string;
-  webhooks: number;
-  failurePolicy: string;
-  created?: string;
-}
-
-/** Enforcing is the strong claim, so only that gets the loud colour. */
-function actionTone(C: EvoCloudPalette, action: FailureAction) {
-  switch (action) {
-    case 'Enforce':
-      return { fg: C.healthy, bg: C.healthySoft, border: C.healthyBorder };
-    case 'Audit':
-      return { fg: C.gold, bg: C.goldSoft, border: C.goldBorder };
-    case 'Mixed':
-      return { fg: C.brand, bg: C.brandSoft, border: C.brandBorder };
-    default:
-      return { fg: C.textDimmer, bg: C.chip, border: C.border };
-  }
-}
-
-export default function CompliancePolicies() {
-  const [q, setQ] = React.useState('');
-  const [actionFilter, setActionFilter] = React.useState('all');
-
-  const isDark = useTheme().palette.mode === 'dark';
-  const C = isDark ? EVOCLOUD_DARK : EVOCLOUD_LIGHT;
-
-  const clusterPolicies = ClusterPolicy.useList() as unknown as ListQuery;
-  const policies = Policy.useList() as unknown as ListQuery;
-  const clusterReports = ClusterPolicyReport.useList() as unknown as ListQuery;
-  const reports = PolicyReport.useList() as unknown as ListQuery;
-  const validating = ValidatingWebhookConfiguration.useList() as unknown as ListQuery;
-  const mutating = MutatingWebhookConfiguration.useList() as unknown as ListQuery;
-
-  const engine = [clusterPolicies, policies];
-  const reportQueries = [clusterReports, reports];
-  const watched = [...engine, ...reportQueries, validating, mutating];
-
-  const policyRows: PolicyRow[] = React.useMemo(() => {
-    const build = (kind: 'ClusterPolicy' | 'Policy', query: ListQuery): PolicyRow[] =>
-      (query.items ?? []).map((item: any) => {
-        const json = item.jsonData ?? {};
-        const ns = item.metadata?.namespace ?? '';
-        return {
-          key: item.metadata?.uid || `${kind}/${ns}/${item.metadata?.name}`,
-          kind,
-          name: item.metadata?.name ?? '',
-          ns,
-          action: failureAction(json),
-          rules: (json.spec?.rules ?? []).length,
-          ruleKinds: ruleKinds(json),
-          appliesTo: matchedKinds(json),
-          background: json.spec?.background !== false,
-          ready: readiness(json),
-          created: item.metadata?.creationTimestamp,
-        };
-      });
-    return [...build('ClusterPolicy', clusterPolicies), ...build('Policy', policies)];
-  }, [clusterPolicies.items, policies.items]);
-
-  const reportRows: ReportRow[] = React.useMemo(() => {
-    const build = (kind: 'PolicyReport' | 'ClusterPolicyReport', query: ListQuery): ReportRow[] =>
-      (query.items ?? []).map((item: any) => {
-        const json = item.jsonData ?? {};
-        const ns = item.metadata?.namespace ?? '';
-        return {
-          key: item.metadata?.uid || `${kind}/${ns}/${item.metadata?.name}`,
-          kind,
-          name: item.metadata?.name ?? '',
-          ns,
-          scope: reportScope(json),
-          summary: reportSummary(json),
-          created: item.metadata?.creationTimestamp,
-        };
-      });
-    return [...build('ClusterPolicyReport', clusterReports), ...build('PolicyReport', reports)];
-  }, [clusterReports.items, reports.items]);
-
-  const webhookRows: WebhookRow[] = React.useMemo(() => {
-    const build = (kind: 'Validating' | 'Mutating', query: ListQuery): WebhookRow[] =>
-      (query.items ?? []).map((item: any) => {
-        const hooks: any[] = item.jsonData?.webhooks ?? [];
-        // A configuration can mix Fail and Ignore across its webhooks; showing
-        // every distinct value keeps that visible instead of picking the first.
-        const policies = [...new Set(hooks.map(h => h.failurePolicy ?? 'Fail'))];
-        return {
-          key: item.metadata?.uid || `${kind}/${item.metadata?.name}`,
-          kind,
-          name: item.metadata?.name ?? '',
-          webhooks: hooks.length,
-          failurePolicy: policies.join(', ') || '—',
-          created: item.metadata?.creationTimestamp,
-        };
-      });
-    return [...build('Validating', validating), ...build('Mutating', mutating)];
-  }, [validating.items, mutating.items]);
-
-  const revision = useRevision(watched);
-  const fetching = watched.some(x => x.isFetching);
-  const loading = watched.every(x => x.isLoading);
-  const engineMissing = allNotFound(engine);
-  const reportsMissing = allNotFound(reportQueries);
-  const hardError = firstRealError(watched);
-
-  const totals = reportRows.reduce((acc, r) => addSummaries(acc, r.summary), EMPTY_SUMMARY);
-  const enforcing = policyRows.filter(p => p.action === 'Enforce' || p.action === 'Mixed').length;
-  const auditing = policyRows.filter(p => p.action === 'Audit').length;
-
-  const query = q.trim().toLowerCase();
-  const matchesPolicy = (p: PolicyRow) =>
-    (!query || `${p.name} ${p.ns} ${p.kind} ${p.appliesTo.join(' ')}`.toLowerCase().includes(query)) &&
-    (actionFilter === 'all' || p.action === actionFilter);
-  const matchesReport = (r: ReportRow) =>
-    !query || `${r.name} ${r.ns} ${r.scope} ${r.kind}`.toLowerCase().includes(query);
-  const matchesWebhook = (w: WebhookRow) => !query || `${w.name} ${w.kind}`.toLowerCase().includes(query);
-
-  const shownPolicies = policyRows.filter(matchesPolicy);
-  const shownReports = reportRows.filter(matchesReport);
-  const shownWebhooks = webhookRows.filter(matchesWebhook);
-  const filtering = !!query || actionFilter !== 'all';
-
-  let summary: React.ReactNode;
-  if (loading) {
-    summary = 'Reading policies and admission configuration from the cluster';
-  } else if (filtering) {
-    summary = `${shownPolicies.length + shownReports.length + shownWebhooks.length} of ${
-      policyRows.length + reportRows.length + webhookRows.length
-    } resources match`;
-  } else if (engineMissing) {
-    summary = `No policy engine installed · ${webhookRows.length} admission webhook configurations`;
-  } else {
-    summary = `${policyRows.length} policies · ${reportRows.length} reports · ${webhookRows.length} admission configurations`;
-  }
-
-  const actions = (
-    <>
-      <SearchBox C={C} value={q} onChange={setQ} placeholder="Filter policies" />
-      <FilterSelect
-        C={C}
-        value={actionFilter}
-        onChange={setActionFilter}
-        options={[
-          { value: 'all', label: 'Any action' },
-          { value: 'Enforce', label: `Enforce (${policyRows.filter(p => p.action === 'Enforce').length})` },
-          { value: 'Audit', label: `Audit (${policyRows.filter(p => p.action === 'Audit').length})` },
-          { value: 'Mixed', label: `Mixed (${policyRows.filter(p => p.action === 'Mixed').length})` },
-          { value: 'Unset', label: `Unset (${policyRows.filter(p => p.action === 'Unset').length})` },
-        ]}
-        label="Filter by failure action"
-        icon={<FolderIcon size={14} stroke={C.textDim} />}
-      />
-      <LiveBadge
-        C={C}
-        fetching={fetching}
-        error={hardError}
-        revision={revision}
-        what="policies, policy reports and admission webhooks"
-      />
-    </>
-  );
-
-  const policyColumns: Column<PolicyRow>[] = [
-    {
-      key: 'kind',
-      label: 'Scope',
-      width: 'minmax(112px, 126px)',
-      render: p => (
-        <Pill
-          fg={C.brand}
-          bg={C.brandSoft}
-          border={C.brandBorder}
-          title={p.kind === 'ClusterPolicy' ? 'Applies cluster-wide' : `Applies within ${p.ns}`}
-        >
-          {p.kind === 'ClusterPolicy' ? 'Cluster' : 'Namespaced'}
-        </Pill>
-      ),
-    },
-    {
-      key: 'name',
-      label: 'Policy',
-      width: 'minmax(150px, 1.3fr)',
-      render: p => (
-        <span
-          title={p.name}
-          style={{ fontSize: '13.5px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}
-        >
-          {p.name}
-        </span>
-      ),
-    },
-    {
-      key: 'ns',
-      label: 'Namespace',
-      width: 'minmax(100px, 0.8fr)',
-      render: p => <Chip C={C} title={p.ns || 'cluster-scoped'}>{p.ns || '—'}</Chip>,
-    },
-    {
-      key: 'action',
-      label: 'On failure',
-      width: 'minmax(92px, 104px)',
-      render: p => {
-        const tone = actionTone(C, p.action);
-        return (
-          <Pill
-            {...tone}
-            title={
-              p.action === 'Mixed'
-                ? 'Rules in this policy disagree: some enforce, some only audit.'
-                : p.action === 'Unset'
-                ? 'No failure action set on the policy or its rules.'
-                : `Violations are ${p.action === 'Enforce' ? 'blocked at admission' : 'recorded but allowed'}.`
-            }
-          >
-            {p.action}
-          </Pill>
-        );
-      },
-    },
-    {
-      key: 'rules',
-      label: 'Rules',
-      width: '64px',
-      render: p => (
-        <Mono C={C} title={p.ruleKinds.join(', ') || 'no typed rules'}>
-          {p.rules}
-        </Mono>
-      ),
-    },
-    {
-      key: 'applies',
-      label: 'Applies to',
-      width: 'minmax(140px, 1.4fr)',
-      render: p => (
-        <Mono C={C} title={p.appliesTo.join(', ') || 'Not restricted by kind'}>
-          {p.appliesTo.length ? p.appliesTo.join(', ') : 'any kind'}
-        </Mono>
-      ),
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      width: 'minmax(104px, 118px)',
-      render: p => {
-        const tone = readyTone(C, p.ready.state);
-        return (
-          <>
-            <Dot color={tone.fg} title={p.ready.message ?? p.ready.label} />
-            <Mono C={C} color={tone.fg} title={p.ready.message ?? p.ready.label}>
-              {p.ready.label}
-            </Mono>
-          </>
-        );
-      },
-    },
-    {
-      key: 'age',
-      label: 'Age',
-      width: '64px',
-      align: 'right',
-      render: p => (
-        <Mono C={C} color={C.textDimmer} title={p.created}>
-          {age(p.created)}
-        </Mono>
-      ),
-    },
-  ];
-
-  const count = (n: number, color: string) => (
-    <Mono C={C} color={n > 0 ? color : C.textDimmer}>
-      {n}
-    </Mono>
-  );
-
-  const reportColumns: Column<ReportRow>[] = [
-    {
-      key: 'name',
-      label: 'Report',
-      width: 'minmax(150px, 1.4fr)',
-      render: r => (
-        <span
-          title={r.name}
-          style={{ fontSize: '13.5px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}
-        >
-          {r.name}
-        </span>
-      ),
-    },
-    {
-      key: 'ns',
-      label: 'Namespace',
-      width: 'minmax(100px, 0.8fr)',
-      render: r => <Chip C={C} title={r.ns || 'cluster-scoped'}>{r.ns || '—'}</Chip>,
-    },
-    {
-      key: 'scope',
-      label: 'Subject',
-      width: 'minmax(150px, 1.5fr)',
-      render: r => (
-        <Mono C={C} title={r.scope}>
-          {r.scope}
-        </Mono>
-      ),
-    },
-    { key: 'pass', label: 'Pass', width: '64px', render: r => count(r.summary.pass, C.healthy) },
-    { key: 'fail', label: 'Fail', width: '64px', render: r => count(r.summary.fail, C.danger) },
-    { key: 'warn', label: 'Warn', width: '64px', render: r => count(r.summary.warn, C.gold) },
-    { key: 'error', label: 'Error', width: '64px', render: r => count(r.summary.error, C.danger) },
-    { key: 'skip', label: 'Skip', width: '64px', render: r => count(r.summary.skip, C.textMuted) },
-    {
-      key: 'age',
-      label: 'Age',
-      width: '64px',
-      align: 'right',
-      render: r => (
-        <Mono C={C} color={C.textDimmer} title={r.created}>
-          {age(r.created)}
-        </Mono>
-      ),
-    },
-  ];
-
-  const webhookColumns: Column<WebhookRow>[] = [
-    {
-      key: 'kind',
-      label: 'Type',
-      width: 'minmax(104px, 118px)',
-      render: w => (
-        <Pill
-          fg={w.kind === 'Validating' ? C.brand : C.gold}
-          bg={w.kind === 'Validating' ? C.brandSoft : C.goldSoft}
-          border={w.kind === 'Validating' ? C.brandBorder : C.goldBorder}
-          title={w.kind === 'Validating' ? 'Can reject a request' : 'Can rewrite a request'}
-        >
-          {w.kind}
-        </Pill>
-      ),
-    },
-    {
-      key: 'name',
-      label: 'Configuration',
-      width: 'minmax(200px, 2fr)',
-      render: w => (
-        <span
-          title={w.name}
-          style={{ fontSize: '13.5px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}
-        >
-          {w.name}
-        </span>
-      ),
-    },
-    { key: 'hooks', label: 'Webhooks', width: '88px', render: w => <Mono C={C}>{w.webhooks}</Mono> },
-    {
-      key: 'failure',
-      label: 'On failure',
-      width: 'minmax(110px, 140px)',
-      render: w => (
-        <Mono
-          C={C}
-          color={w.failurePolicy.includes('Fail') ? C.gold : C.textMuted}
-          title={
-            w.failurePolicy.includes('Fail')
-              ? 'Requests are rejected when the webhook is unreachable.'
-              : 'Requests are admitted when the webhook is unreachable.'
-          }
-        >
-          {w.failurePolicy}
-        </Mono>
-      ),
-    },
-    {
-      key: 'age',
-      label: 'Age',
-      width: '64px',
-      align: 'right',
-      render: w => (
-        <Mono C={C} color={C.textDimmer} title={w.created}>
-          {age(w.created)}
-        </Mono>
-      ),
-    },
-  ];
-
-  const emptyBlock = (text: React.ReactNode) => (
+/** A line of explanation under the tiles, quieter than a full notice. */
+function Note({ C, children }: { C: EvoCloudPalette; children: React.ReactNode }) {
+  return (
     <div
       style={{
-        padding: '22px',
+        marginBottom: '20px',
+        padding: '12px 14px',
         border: `1px dashed ${C.border}`,
         borderRadius: '10px',
         background: C.surfaceSunken,
         fontSize: '12.5px',
         color: C.textMuted,
-        textAlign: 'center',
         lineHeight: 1.6,
       }}
     >
-      {text}
+      {children}
     </div>
   );
+}
+
+export default function CompliancePolicies() {
+  const C = usePalette();
+  const kyverno = useKyverno();
+  const engine = useKyvernoEngine();
+  const { phase, posture, reportsMissing, error } = kyverno;
+  const { checks } = posture;
+
+  const [view, setView] = React.useState<View>('policy');
+  const [scope, setScope] = React.useState<Scope>('all');
+  // Failing only by default, but every policy while nothing fails — an empty
+  // table says less than the list. Followed until the toggle is used: reports
+  // can land after the policies, and a default fixed on the first render would
+  // be decided before there was anything failing to show.
+  const [failingChoice, setFailingChoice] = React.useState<boolean | null>(null);
+  const resultsRef = React.useRef<HTMLDivElement>(null);
+
+  const declared = posture.policies.filter(p => p.kind);
+  const enforcing = declared.filter(p => p.action === 'Enforce' || p.action === 'Mixed').length;
+  const auditing = declared.filter(p => p.action === 'Audit').length;
+  const ready = declared.filter(readyToEnforce).length;
+  const excepted = declared.filter(p => p.exceptions.length > 0).length;
+  const total = totalChecks(checks);
+  const other = checks.warn + checks.error + checks.skip;
+
+  const side = (system: boolean) =>
+    posture.namespaces
+      .filter(n => n.system === system)
+      .reduce(
+        (acc, n) => ({ resources: acc.resources + n.resources, failing: acc.failing + n.failing }),
+        {
+          resources: 0,
+          failing: 0,
+        }
+      );
+  const workloads = side(false);
+  const system = side(true);
+
+  const failingOnly = failingChoice ?? posture.policies.some(p => p.failed > 0);
+  const sortedPolicies = sortPolicies(posture.policies);
+  const shownPolicies = failingOnly ? sortedPolicies.filter(p => p.failed > 0) : sortedPolicies;
+  const shownOffenders = posture.offenders.filter(o => inScope(o, scope));
+
+  const showNamespace = (namespace: string | null) => {
+    setView('resource');
+    setScope(`ns:${namespace ?? ''}`);
+    resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  let summary: React.ReactNode;
+  if (phase === 'loading') {
+    summary = 'Reading Kyverno policies and reports';
+  } else if (phase === 'not-installed') {
+    summary = 'Kyverno is not installed on this cluster';
+  } else if (phase === 'ready') {
+    summary = `${declared.length} Kyverno ${declared.length === 1 ? 'policy' : 'policies'} · ${
+      posture.resources
+    } resources checked`;
+  } else {
+    summary = 'Kyverno policies and policy reports';
+  }
+
+  const actions =
+    phase === 'ready' ? (
+      <LiveBadge
+        C={C}
+        fetching={kyverno.fetching}
+        error={null}
+        revision={kyverno.revision}
+        what="Kyverno policies, policy reports and exceptions"
+      />
+    ) : null;
 
   let body: React.ReactNode;
-  if (loading) {
-    body = <Notice C={C} title="Loading compliance data">Reading policies, reports and admission webhooks.</Notice>;
-  } else if (hardError) {
-    body = <Notice C={C} title="Could not load compliance data">{hardError.message || String(hardError)}</Notice>;
-  } else {
+  if (phase === 'loading') {
+    body = <Notice C={C} title="Reading Kyverno policies and reports" busy />;
+  } else if (phase === 'not-installed') {
+    body = (
+      <Notice C={C} title="Kyverno is not installed on this cluster">
+        Kyverno checks resources against policies as they are admitted and writes what it found to
+        policy reports, which this page scores. Install it and the baseline Pod Security policies
+        the way EvoCloud does, and results appear within a minute or two.
+        <InstallSteps C={C} steps={[INSTALL_KYVERNO, INSTALL_POLICIES]} />
+        <a href={KYVERNO_INSTALL_DOCS} target="_blank" rel="noreferrer noopener">
+          Kyverno installation guide ↗
+        </a>
+      </Notice>
+    );
+  } else if (phase === 'forbidden') {
+    body = (
+      <Notice C={C} title="Not allowed to read Kyverno's policies">
+        Your account cannot list <Code>clusterpolicies</Code> or <Code>policyreports</Code> in this
+        cluster.
+      </Notice>
+    );
+  } else if (phase === 'error') {
+    body = (
+      <Notice C={C} title="Could not read Kyverno's policies">
+        {error}
+      </Notice>
+    );
+  } else if (posture.policies.length === 0) {
     body = (
       <>
-        <StatGrid
-          C={C}
-          stats={[
-            {
-              label: 'Policies',
-              value: engineMissing ? '—' : policyRows.length,
-              sub: engineMissing ? 'no engine' : `${enforcing} enforcing · ${auditing} auditing`,
-            },
-            {
-              label: 'Passing',
-              value: totals.pass,
-              sub: 'results',
-              tone: totals.pass ? C.healthy : undefined,
-            },
-            {
-              label: 'Failing',
-              value: totals.fail,
-              sub: totals.fail ? 'violations' : 'none',
-              tone: totals.fail ? C.danger : undefined,
-            },
-            {
-              label: 'Warnings',
-              value: totals.warn + totals.error,
-              sub: 'warn + error',
-              tone: totals.warn + totals.error ? C.gold : undefined,
-            },
-            {
-              label: 'Admission',
-              value: webhookRows.length,
-              sub: `${webhookRows.filter(w => w.kind === 'Validating').length} validating · ${
-                webhookRows.filter(w => w.kind === 'Mutating').length
-              } mutating`,
-            },
-          ]}
-        />
+        <EngineStrip C={C} engine={engine} />
+        <Notice C={C} title="Kyverno has no policies yet">
+          Kyverno is installed, but no <Code>ClusterPolicy</Code>, <Code>Policy</Code> or{' '}
+          <Code>ValidatingPolicy</Code> exists, so there is nothing to check resources against.
+          <InstallSteps C={C} steps={[INSTALL_POLICIES]} />
+        </Notice>
+      </>
+    );
+  } else {
+    // Two rows of four, as on Frameworks: the policies and their results, then
+    // where in the cluster the results fall.
+    const policyStats: Stat[] = [
+      {
+        label: 'Policies',
+        value: declared.length,
+        sub: `${enforcing} enforcing · ${auditing} auditing`,
+      },
+      {
+        label: 'Ready to enforce',
+        value: ready,
+        sub: auditing ? `of ${auditing} audit-only, no violations` : 'no audit-only policies',
+        tone: ready ? C.healthy : undefined,
+        ratio: auditing
+          ? { value: ready, total: auditing, of: 'audit-only policies with no violations' }
+          : undefined,
+      },
+      {
+        label: 'Passed',
+        value: checks.pass,
+        sub: `of ${total} checks`,
+        tone: checks.pass ? C.healthy : undefined,
+        ratio: { value: checks.pass, total, of: 'checks passed' },
+      },
+      {
+        label: 'Failed',
+        value: checks.fail,
+        sub: `across ${posture.failingResources} resources`,
+        tone: checks.fail ? C.danger : total ? C.healthy : undefined,
+        ratio: { value: checks.fail, total, of: 'checks failed' },
+      },
+    ];
 
-        <section style={{ marginBottom: '26px' }}>
-          <SectionHeading C={C} label="Policies" count={engineMissing ? undefined : shownPolicies.length} />
-          {engineMissing
-            ? emptyBlock(
-                <>
-                  No <Code>kyverno.io</Code> resource definitions were found, so this cluster has no Kyverno policies to
-                  report on. The admission configuration below is still read from core Kubernetes and shows what does
-                  gate requests today.
-                </>
-              )
-            : shownPolicies.length === 0
-            ? emptyBlock(
-                policyRows.length === 0 ? (
-                  <>
-                    Kyverno is installed and no <Code>ClusterPolicy</Code> or <Code>Policy</Code> exists yet.
-                  </>
+    const whereStats: Stat[] = [
+      {
+        label: 'Resources',
+        value: posture.resources,
+        sub: `${posture.failingResources} failing a policy`,
+        ratio: {
+          value: posture.failingResources,
+          total: posture.resources,
+          of: 'resources failing a policy',
+        },
+      },
+      {
+        label: 'Workload namespaces',
+        value: workloads.failing,
+        sub: `failing of ${workloads.resources} resources`,
+        tone: workloads.failing ? C.danger : workloads.resources ? C.healthy : undefined,
+        ratio: {
+          value: workloads.failing,
+          total: workloads.resources,
+          of: 'workload resources failing a policy',
+        },
+      },
+      {
+        label: 'System namespaces',
+        value: system.failing,
+        sub: `failing of ${system.resources} resources`,
+        // Gold, not red: platform components failing Pod Security is expected.
+        tone: system.failing ? C.gold : system.resources ? C.healthy : undefined,
+        ratio: {
+          value: system.failing,
+          total: system.resources,
+          of: 'system resources failing a policy',
+        },
+      },
+      {
+        label: 'Exceptions',
+        value: posture.exceptions,
+        sub: posture.exceptions
+          ? `relaxing ${excepted} ${excepted === 1 ? 'policy' : 'policies'}`
+          : 'none recorded',
+      },
+    ];
+    // Only when there is something in it, so the usual rows stay four wide.
+    if (other) {
+      whereStats.push({
+        label: 'Other results',
+        value: other,
+        sub: `${checks.warn} warn · ${checks.error} error · ${checks.skip} skip`,
+        tone: checks.warn + checks.error ? C.gold : undefined,
+      });
+    }
+
+    const namespaceOptions = posture.namespaces
+      .filter(n => n.failing > 0)
+      .map(n => ({
+        value: `ns:${n.namespace ?? ''}`,
+        label: `${n.namespace ?? 'cluster-scoped'} (${n.failing})`,
+      }));
+    const offenderCount = (filter: Scope) =>
+      posture.offenders.filter(o => inScope(o, filter)).length;
+
+    let empty = {
+      title: 'Nothing here fails a Kyverno policy',
+      body: 'Every resource in this selection passed every policy that checked it.',
+    };
+    if (scope === 'workloads' && posture.offenders.length > 0) {
+      empty = {
+        title: 'No workload fails a Kyverno policy',
+        body: 'Every failing resource is in a system namespace. Choose System namespaces to see them.',
+      };
+    }
+
+    body = (
+      <>
+        <EngineStrip C={C} engine={engine} />
+        <StatGrid C={C} min="230px" spacing="12px" stats={policyStats} />
+        <StatGrid C={C} min="230px" stats={whereStats} />
+
+        {reportsMissing ? (
+          <Note C={C}>
+            The policies are installed but the <Code>wgpolicyk8s.io</Code> report API is not
+            answering, so there are no results to score. With EvoCloud&apos;s reports-server, check
+            that it is running in the <Code>kyverno</Code> namespace.
+          </Note>
+        ) : total === 0 ? (
+          <Note C={C}>
+            Kyverno has not reported on any resource yet. Its reports controller writes results
+            shortly after a policy is created, and again on every background scan.
+          </Note>
+        ) : null}
+
+        {posture.namespaces.length > 0 && (
+          <>
+            <SectionHeading C={C} label="Namespaces" count={posture.namespaces.length} />
+            <NamespacePanel C={C} namespaces={posture.namespaces} onSelect={showNamespace} />
+          </>
+        )}
+
+        <div ref={resultsRef} style={{ scrollMarginTop: '16px' }}>
+          <SectionHeading
+            C={C}
+            label={view === 'policy' ? 'Kyverno policies' : 'Failing resources'}
+            count={view === 'policy' ? shownPolicies.length : shownOffenders.length}
+            right={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {view === 'policy' ? (
+                  <GhostButton
+                    C={C}
+                    active={!failingOnly}
+                    onClick={() => setFailingChoice(!failingOnly)}
+                    title="Switch between failing policies and every policy"
+                  >
+                    {failingOnly ? `Show all ${posture.policies.length}` : 'Failing only'}
+                  </GhostButton>
                 ) : (
-                  'No policies match the current filter.'
-                )
-              )
-            : <DataTable C={C} columns={policyColumns} rows={shownPolicies} rowKey={p => p.key} />}
-        </section>
-
-        <section style={{ marginBottom: '26px' }}>
-          <SectionHeading C={C} label="Policy reports" count={reportsMissing ? undefined : shownReports.length} />
-          {reportsMissing
-            ? emptyBlock(
-                <>
-                  No <Code>wgpolicyk8s.io</Code> report definitions were found. Any policy engine that writes the shared
-                  PolicyReport format populates this table.
-                </>
-              )
-            : shownReports.length === 0
-            ? emptyBlock(
-                reportRows.length === 0
-                  ? 'No policy reports have been written yet. They appear once the engine has evaluated a resource.'
-                  : 'No reports match the current filter.'
-              )
-            : <DataTable C={C} columns={reportColumns} rows={shownReports} rowKey={r => r.key} />}
-        </section>
-
-        <section style={{ marginBottom: '26px' }}>
-          <SectionHeading C={C} label="Admission control" count={shownWebhooks.length} />
-          {shownWebhooks.length === 0
-            ? emptyBlock(
-                webhookRows.length === 0
-                  ? 'Nothing is registered to validate or mutate admission requests on this cluster.'
-                  : 'No configurations match the current filter.'
-              )
-            : <DataTable C={C} columns={webhookColumns} rows={shownWebhooks} rowKey={w => w.key} />}
-        </section>
+                  <FilterSelect
+                    C={C}
+                    value={scope}
+                    onChange={v => setScope(v as Scope)}
+                    label="Filter failing resources by namespace"
+                    icon={<FolderIcon size={14} stroke={C.textDim} />}
+                    options={[
+                      { value: 'all', label: `All namespaces (${posture.offenders.length})` },
+                      {
+                        value: 'workloads',
+                        label: `Workload namespaces (${offenderCount('workloads')})`,
+                      },
+                      { value: 'system', label: `System namespaces (${offenderCount('system')})` },
+                      ...namespaceOptions,
+                    ]}
+                  />
+                )}
+                <Segmented<View>
+                  C={C}
+                  label="Group results"
+                  value={view}
+                  onChange={setView}
+                  options={[
+                    { value: 'policy', label: 'By policy' },
+                    { value: 'resource', label: 'By resource' },
+                  ]}
+                />
+              </div>
+            }
+          />
+          {view === 'policy' ? (
+            <PolicyTable C={C} policies={shownPolicies} />
+          ) : (
+            <ResourceTable C={C} offenders={shownOffenders} empty={empty} />
+          )}
+        </div>
       </>
     );
   }
 
   return (
-    <EvoPage
-      section="Compliance"
-      title="Compliance Policies"
-      summary={summary}
-      actions={actions}
-    >
+    <EvoPage section="Compliance" title="Policies" summary={summary} actions={actions}>
       {body}
     </EvoPage>
   );
