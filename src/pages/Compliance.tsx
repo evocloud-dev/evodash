@@ -1,12 +1,15 @@
 /**
- * Compliance — how the cluster scores against the security frameworks
- * Kubescape checks it with.
+ * Compliance Frameworks — how the cluster scores against the security
+ * frameworks Kubescape checks it with.
  *
  * Kubescape's operator does the scanning: it checks every resource against its
  * rule library and stores the results in the cluster. This page reads those
  * results and scores them per framework (see k8s/kubescape.ts), so it shows
  * nothing until the operator is installed — and says so, rather than showing
  * zeros that look like a clean bill of health.
+ *
+ * What Kyverno's policies report is the other Compliance page,
+ * CompliancePolicies.tsx.
  *
  * PCI-DSS was asked for alongside NSA, MITRE and CIS, but Kubescape publishes
  * no PCI-DSS framework, and scoring an invented mapping of controls to PCI
@@ -16,19 +19,12 @@
 
 import { useCluster } from '@kinvolk/headlamp-plugin/lib/k8s';
 import React from 'react';
-import {
-  ControlScore,
-  FrameworkScore,
-  scanTotals,
-  scoreAllFrameworks,
-  Severity,
-} from '../k8s/kubescape';
+import { ControlScore, FrameworkScore, scanTotals, scoreAllFrameworks } from '../k8s/kubescape';
 import { EvoCloudPalette } from '../palette';
 import {
   Chip,
   CLIP,
   Code,
-  CopyButton,
   EvoPage,
   GhostButton,
   MONO,
@@ -40,6 +36,7 @@ import {
   StatGrid,
   usePalette,
 } from '../ui/chrome';
+import { InstallStep, InstallSteps, severityTone } from './compliance/shared';
 import { cveStats, scoreColor, useScanResults } from './compliance/useScanResults';
 
 /* ---------------------------------------------------------------- install */
@@ -54,9 +51,9 @@ const KUBESCAPE_INSTALL_DOCS = 'https://kubescape.io/docs/install-operator/';
  * The cluster name is filled in from Headlamp's so the operator labels its
  * results with the name people know the cluster by.
  */
-function InstallSteps({ C, cluster }: { C: EvoCloudPalette; cluster: string }) {
+function kubescapeSteps(cluster: string): InstallStep[] {
   const name = cluster || 'my-cluster';
-  const steps = [
+  return [
     {
       label: 'Add the Kubescape Helm repository',
       command: 'helm repo add kubescape https://kubescape.github.io/helm-charts/',
@@ -68,66 +65,9 @@ function InstallSteps({ C, cluster }: { C: EvoCloudPalette; cluster: string }) {
         `--create-namespace --set clusterName=${name} --set capabilities.continuousScan=enable`,
     },
   ];
-
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        margin: '16px 0 14px',
-        textAlign: 'left',
-      }}
-    >
-      {steps.map((step, i) => (
-        <div key={step.label} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <span style={{ fontSize: '11.5px', color: C.textDim }}>
-            {i + 1}. {step.label}
-          </span>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: '8px',
-              padding: '8px 10px',
-              background: C.surfaceDeep,
-              border: `1px solid ${C.border}`,
-              borderRadius: '8px',
-            }}
-          >
-            <code
-              style={{
-                flex: 1,
-                fontFamily: MONO,
-                fontSize: '11.5px',
-                color: C.textValue,
-                wordBreak: 'break-all',
-                lineHeight: 1.5,
-              }}
-            >
-              {step.command}
-            </code>
-            <CopyButton C={C} value={step.command} label={step.label} what="command" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
 }
 
-/* ------------------------------------------------------------------ tones */
-
-function severityTone(C: EvoCloudPalette, severity: Severity) {
-  switch (severity) {
-    case 'Critical':
-    case 'High':
-      return { fg: C.danger, bg: `${C.danger}1f`, border: `${C.danger}55` };
-    case 'Medium':
-      return { fg: C.gold, bg: C.goldSoft, border: C.goldBorder };
-    default:
-      return { fg: C.textMuted, bg: C.chip, border: C.border };
-  }
-}
+/* ----------------------------------------------------------------- format */
 
 function ago(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -470,7 +410,7 @@ export default function Compliance() {
         Compliance scores come from the Kubescape operator, which scans every resource in the
         cluster. Install it with Helm, with continuous scanning on, and the scores appear here after
         its first scan — usually within a few minutes.
-        <InstallSteps C={C} cluster={cluster} />
+        <InstallSteps C={C} steps={kubescapeSteps(cluster)} />
         <a href={KUBESCAPE_INSTALL_DOCS} target="_blank" rel="noreferrer noopener">
           Kubescape installation guide ↗
         </a>
@@ -616,7 +556,7 @@ export default function Compliance() {
   }
 
   return (
-    <EvoPage section="Compliance" title="Compliance" summary={summary} actions={actions}>
+    <EvoPage section="Compliance" title="Frameworks" summary={summary} actions={actions}>
       {body}
     </EvoPage>
   );

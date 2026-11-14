@@ -49,6 +49,7 @@ import {
   usePalette,
 } from '../ui/chrome';
 import { buildAppViews, groupsOf as appGroupsOf } from './appEndpoints/model';
+import { COMPLIANCE_POLICIES_ROUTE, useKyverno } from './compliance/useKyverno';
 import {
   COMPLIANCE_ROUTE,
   cveStats,
@@ -80,6 +81,8 @@ interface SectionCard {
   count: number | null;
   /** What the count counts, singular. Pluralised with a bare "s". */
   unit: string;
+  /** The plural, for a unit a bare "s" gets wrong. */
+  plural?: string;
   /** Second line of detail — a breakdown, a caveat. */
   detail?: React.ReactNode;
 }
@@ -232,6 +235,16 @@ export default function Overview() {
     [scanned]
   );
   const compliance = React.useMemo(() => scanTotals(scanned), [scanned]);
+
+  // Kyverno, behind the Compliance Policies page. Its lists are watched like
+  // the rest, so unlike the scans above there is nothing to wait for.
+  const kyverno = useKyverno();
+  const kyvernoInstalled = kyverno.phase !== 'loading' && kyverno.phase !== 'not-installed';
+  const kyvernoDeclared = kyverno.posture.policies.filter(p => p.kind);
+  const kyvernoPolicies = kyvernoDeclared.length;
+  const kyvernoEnforcing = kyvernoDeclared.filter(
+    p => p.action === 'Enforce' || p.action === 'Mixed'
+  ).length;
   const weakest = frameworkScores.reduce<FrameworkScore | null>(
     (low, fs) => (!low || fs.score < low.score ? fs : low),
     null
@@ -400,6 +413,23 @@ export default function Overview() {
     );
   }
 
+  if (kyverno.phase === 'ready' && kyvernoPolicies > 0) {
+    const { resources, failingResources } = kyverno.posture;
+    stats.push({
+      // Resources rather than rule results, as on the Policies page: one bad
+      // Deployment fails a policy's Pod rule and every copy Kyverno makes of
+      // it, but it is still one thing to fix.
+      label: 'Policy violations',
+      value: resources ? failingResources : '—',
+      sub: resources ? `of ${resources} resources checked` : 'no Kyverno reports yet',
+      route: COMPLIANCE_POLICIES_ROUTE,
+      tone: resources ? (failingResources ? C.danger : C.healthy) : undefined,
+      ratio: resources
+        ? { value: failingResources, total: resources, of: 'resources failing a Kyverno policy' }
+        : undefined,
+    });
+  }
+
   const SECTIONS: SectionCard[] = [
     {
       route: APP_ENDPOINTS_ROUTE,
@@ -484,10 +514,43 @@ export default function Overview() {
     }
     SECTIONS.push({
       route: COMPLIANCE_ROUTE,
-      title: 'Compliance',
+      // Qualified here, as the KubeVela cards are, because the sidebar's
+      // Compliance heading is not above it.
+      title: 'Compliance Frameworks',
       blurb: 'How the cluster scores against NSA, MITRE, CIS and SOC 2, from Kubescape scans.',
       count: frameworkScores.length ? frameworkScores.length : null,
       unit: 'framework',
+      detail,
+    });
+  }
+
+  if (kyvernoInstalled) {
+    const { resources, failingResources } = kyverno.posture;
+    let detail: React.ReactNode;
+    if (kyverno.phase !== 'ready') {
+      detail = <Chip C={C}>policies unavailable</Chip>;
+    } else if (resources) {
+      detail = (
+        <>
+          <Chip C={C}>
+            {failingResources} of {resources} resources failing
+          </Chip>
+          <Chip C={C}>
+            {kyvernoEnforcing} enforcing · {kyvernoPolicies - kyvernoEnforcing} audit only
+          </Chip>
+        </>
+      );
+    } else {
+      detail = <Chip C={C}>no reports yet</Chip>;
+    }
+    SECTIONS.push({
+      route: COMPLIANCE_POLICIES_ROUTE,
+      title: 'Compliance Policies',
+      blurb:
+        'Which Kyverno policies the resources here pass and fail, and whether they are enforced.',
+      count: kyverno.phase === 'ready' ? kyvernoPolicies : null,
+      unit: 'policy',
+      plural: 'policies',
       detail,
     });
   }
@@ -596,8 +659,8 @@ export default function Overview() {
                 <span style={{ flex: 1 }} />
                 {section.count !== null && (
                   <span style={{ fontSize: '13px', color: C.textMuted }}>
-                    {section.count} {section.unit}
-                    {section.count === 1 ? '' : 's'}
+                    {section.count}{' '}
+                    {section.count === 1 ? section.unit : section.plural ?? `${section.unit}s`}
                   </span>
                 )}
               </div>
