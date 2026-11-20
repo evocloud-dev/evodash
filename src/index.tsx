@@ -192,7 +192,7 @@ registerSidebarEntry({
   url: '/evocloud/compliance',
 });
 
-// 6a. Frameworks — Kubescape's scores against NSA, MITRE, CIS and SOC 2
+// 6a. Frameworks — Kubescape's scores against NSA, MITRE, CIS, SOC 2 and ArmoBest
 registerSidebarEntry({
   parent: 'evocloud-compliance',
   name: 'evocloud-compliance-frameworks',

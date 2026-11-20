@@ -517,7 +517,8 @@ export default function Overview() {
       // Qualified here, as the KubeVela cards are, because the sidebar's
       // Compliance heading is not above it.
       title: 'Compliance Frameworks',
-      blurb: 'How the cluster scores against NSA, MITRE, CIS and SOC 2, from Kubescape scans.',
+      blurb:
+        'How the cluster scores against NSA, MITRE, CIS, SOC 2 and ArmoBest, from Kubescape scans.',
       count: frameworkScores.length ? frameworkScores.length : null,
       unit: 'framework',
       detail,
