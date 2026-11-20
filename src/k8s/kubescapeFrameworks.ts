@@ -8,6 +8,7 @@
  * base score and category. Only the frameworks this page scores are kept.
  *
  * Kubescape ships no PCI-DSS framework, so SOC 2 takes the fourth slot.
+ * ArmoBest, ARMO's own best-practice set, was asked for as a fifth.
  * Regenerate this file when the operator moves to a new rule-library release.
  */
 
@@ -239,6 +240,53 @@ export const KUBESCAPE_FRAMEWORKS: KubescapeFramework[] = [
     description: 'Kubernetes controls Kubescape maps to SOC 2 criteria',
     controlIDs: ['C-0012', 'C-0035', 'C-0067', 'C-0186', 'C-0260', 'C-0263', 'C-0264'],
   },
+  {
+    name: 'ArmoBest',
+    label: 'ArmoBest',
+    description: 'Kubernetes security best practices from ARMO, the makers of Kubescape',
+    controlIDs: [
+      'C-0002',
+      'C-0005',
+      'C-0012',
+      'C-0013',
+      'C-0016',
+      'C-0017',
+      'C-0030',
+      'C-0034',
+      'C-0035',
+      'C-0038',
+      'C-0041',
+      'C-0044',
+      'C-0046',
+      'C-0049',
+      'C-0054',
+      'C-0055',
+      'C-0057',
+      'C-0058',
+      'C-0059',
+      'C-0061',
+      'C-0062',
+      'C-0063',
+      'C-0065',
+      'C-0066',
+      'C-0067',
+      'C-0068',
+      'C-0069',
+      'C-0070',
+      'C-0078',
+      'C-0079',
+      'C-0081',
+      'C-0087',
+      'C-0089',
+      'C-0091',
+      'C-0236',
+      'C-0237',
+      'C-0270',
+      'C-0271',
+      'C-0292',
+      'C-0306',
+    ],
+  },
 ];
 
 export const KUBESCAPE_CONTROLS: Record<string, KubescapeControl> = {
@@ -372,6 +420,11 @@ export const KUBESCAPE_CONTROLS: Record<string, KubescapeControl> = {
     baseScore: 7,
     category: 'Workload',
   },
+  'C-0049': {
+    name: 'Network mapping',
+    baseScore: 3,
+    category: 'Network',
+  },
   'C-0052': {
     name: 'Instance Metadata API',
     baseScore: 7,
@@ -407,6 +460,26 @@ export const KUBESCAPE_CONTROLS: Record<string, KubescapeControl> = {
     baseScore: 8,
     category: 'Workload',
   },
+  'C-0061': {
+    name: 'Pods in default namespace',
+    baseScore: 3,
+    category: 'Workload',
+  },
+  'C-0062': {
+    name: 'Sudo in container entrypoint',
+    baseScore: 5,
+    category: 'Workload',
+  },
+  'C-0063': {
+    name: 'Portforwarding privileges',
+    baseScore: 5,
+    category: 'Access control',
+  },
+  'C-0065': {
+    name: 'No impersonation',
+    baseScore: 6,
+    category: 'Access control',
+  },
   'C-0066': {
     name: 'Secret/etcd encryption enabled',
     baseScore: 6,
@@ -431,6 +504,36 @@ export const KUBESCAPE_CONTROLS: Record<string, KubescapeControl> = {
     name: 'Enforce Kubelet client TLS authentication',
     baseScore: 9,
     category: 'Control plane',
+  },
+  'C-0078': {
+    name: 'Images from allowed registry',
+    baseScore: 5,
+    category: 'Workload',
+  },
+  'C-0079': {
+    name: 'CVE-2022-0185-linux-kernel-container-escape',
+    baseScore: 4,
+    category: 'Workload',
+  },
+  'C-0081': {
+    name: 'CVE-2022-24348-argocddirtraversal',
+    baseScore: 4,
+    category: 'Workload',
+  },
+  'C-0087': {
+    name: 'CVE-2022-23648-containerd-fs-escape',
+    baseScore: 7,
+    category: 'Workload',
+  },
+  'C-0089': {
+    name: 'CVE-2022-3172-aggregated-API-server-redirect',
+    baseScore: 3,
+    category: 'Workload',
+  },
+  'C-0091': {
+    name: 'CVE-2022-47633-kyverno-signature-bypass',
+    baseScore: 8,
+    category: 'Workload',
   },
   'C-0092': {
     name: 'Ensure that the API server pod specification file permissions are set to 600 or more restrictive',
@@ -992,6 +1095,16 @@ export const KUBESCAPE_CONTROLS: Record<string, KubescapeControl> = {
     baseScore: 4,
     category: 'Workload',
   },
+  'C-0236': {
+    name: 'Verify image signature',
+    baseScore: 7,
+    category: 'Workload',
+  },
+  'C-0237': {
+    name: 'Check if signature exists',
+    baseScore: 7,
+    category: 'Workload',
+  },
   'C-0246': {
     name: 'Avoid use of system:masters group',
     baseScore: 8,
@@ -1105,6 +1218,11 @@ export const KUBESCAPE_CONTROLS: Record<string, KubescapeControl> = {
   'C-0292': {
     name: 'Nginx Ingress Controller End of Life',
     baseScore: 6,
+    category: 'Workload',
+  },
+  'C-0306': {
+    name: 'Images not pinned to digest',
+    baseScore: 3,
     category: 'Workload',
   },
   'C-0318': {
