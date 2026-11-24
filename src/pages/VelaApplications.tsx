@@ -50,8 +50,22 @@ import {
   useRevision,
   useSidePanelViable,
 } from '../ui/chrome';
+import { ListToolbar, useListView } from '../ui/listView';
+import { VelaAppCard } from './velaApps/AppCard';
 import { AppDetail } from './velaApps/AppDetail';
-import { AppView, buildAppViews, matchesApp, namespacesOf, Origin } from './velaApps/model';
+import {
+  AppView,
+  buildAppViews,
+  DEFAULT_SORT,
+  EXPORT_FIELDS,
+  GROUP_FIELDS,
+  matchesApp,
+  namespacesOf,
+  Origin,
+  SORT_FIELDS,
+} from './velaApps/model';
+
+const SORTABLE = SORT_FIELDS.map(f => f.key);
 
 export default function VelaApplications() {
   const C = usePalette();
@@ -89,10 +103,30 @@ export default function VelaApplications() {
   // of being left out of the denominator and flattering the figure.
   const healthy = apps.reduce((n, a) => n + (a.healthyServices ?? 0), 0);
 
-  const filter = { query: q, ns: nsFilter, state: stateFilter, origin: originFilter };
-  const shown = apps.filter(a => matchesApp(a, filter));
+  const shown = React.useMemo(
+    () =>
+      apps.filter(a =>
+        matchesApp(a, { query: q, ns: nsFilter, state: stateFilter, origin: originFilter })
+      ),
+    [apps, q, nsFilter, stateFilter, originFilter]
+  );
   const filtering =
     !!q.trim() || nsFilter !== 'all' || stateFilter !== 'all' || originFilter !== 'all';
+  const clearFilters = () => {
+    setQ('');
+    setNsFilter('all');
+    setStateFilter('all');
+    setOriginFilter('all');
+  };
+
+  const list = useListView({
+    id: 'vela-applications',
+    rows: shown,
+    sortFields: SORT_FIELDS,
+    groupFields: GROUP_FIELDS,
+    defaultSort: DEFAULT_SORT,
+  });
+  const [closed, setClosed] = React.useState<Record<string, boolean>>({});
 
   const selected = selectedKey ? apps.find(a => a.key === selectedKey) ?? null : null;
 
@@ -142,32 +176,10 @@ export default function VelaApplications() {
       width: 'minmax(160px, 1.4fr)',
       render: app => (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-          {panelViable ? (
-            <button
-              type="button"
-              onClick={() => setSelectedKey(app.key)}
-              title={`Open ${app.name}`}
-              style={{
-                ...CLIP,
-                minWidth: 0,
-                padding: 0,
-                background: 'transparent',
-                border: 0,
-                textAlign: 'left',
-                font: 'inherit',
-                fontSize: '13.5px',
-                fontWeight: 600,
-                color: 'inherit',
-                cursor: 'pointer',
-              }}
-            >
-              {app.name}
-            </button>
-          ) : (
-            <span style={{ ...CLIP, fontSize: '13.5px', fontWeight: 600, minWidth: 0 }}>
-              {app.name}
-            </span>
-          )}
+          {/* The whole row opens the panel, so the name is plain text. */}
+          <span style={{ ...CLIP, fontSize: '13.5px', fontWeight: 600, minWidth: 0 }}>
+            {app.name}
+          </span>
           {app.addon && (
             <Chip C={C} title={`Installed by the ${app.addon.name} addon`}>
               addon
@@ -390,7 +402,18 @@ export default function VelaApplications() {
         />
 
         <section style={{ marginTop: '26px' }}>
-          <SectionHeading C={C} label="Applications" count={shown.length} />
+          <ListToolbar
+            C={C}
+            list={list}
+            shown={shown.length}
+            total={apps.length}
+            noun="applications"
+            onClearFilters={filtering ? clearFilters : undefined}
+            sortFields={SORT_FIELDS}
+            groupFields={GROUP_FIELDS}
+            exportFields={EXPORT_FIELDS}
+            exportName="KubeVela applications"
+          />
           {shown.length === 0 ? (
             <div
               style={{
@@ -406,7 +429,53 @@ export default function VelaApplications() {
               No applications match the current filters.
             </div>
           ) : (
-            <DataTable C={C} columns={columns} rows={shown} rowKey={app => app.key} />
+            list.groups.map(group => {
+              const open = !closed[group.name];
+              return (
+                <section key={group.name} style={{ marginBottom: list.grouped ? '22px' : 0 }}>
+                  {list.grouped && (
+                    <SectionHeading
+                      C={C}
+                      label={group.name}
+                      count={group.rows.length}
+                      open={open}
+                      onToggle={() => setClosed(s => ({ ...s, [group.name]: !s[group.name] }))}
+                    />
+                  )}
+                  {open &&
+                    (list.view === 'grid' ? (
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                          gap: '12px',
+                        }}
+                      >
+                        {group.rows.map(app => (
+                          <VelaAppCard
+                            key={app.key}
+                            C={C}
+                            app={app}
+                            onOpen={panelViable ? () => setSelectedKey(app.key) : undefined}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <DataTable
+                        C={C}
+                        columns={columns}
+                        rows={group.rows}
+                        rowKey={app => app.key}
+                        sort={list.sort}
+                        onSort={list.sortBy}
+                        sortable={SORTABLE}
+                        onRowClick={panelViable ? app => setSelectedKey(app.key) : undefined}
+                        rowLabel={app => app.name}
+                      />
+                    ))}
+                </section>
+              );
+            })
           )}
         </section>
       </>
@@ -414,14 +483,24 @@ export default function VelaApplications() {
   }
 
   return (
-    <EvoPage section="KubeVela" title="KubeVela Applications" summary={summary} actions={actions}>
+    <EvoPage
+      section="App Delivery"
+      title="Delivered Applications"
+      summary={summary}
+      actions={actions}
+    >
       {body}
 
       <SidePanel
         C={C}
         open={!!selected}
         title={selected?.name ?? ''}
-        subtitle={selected && `${selected.components.length} components · ${selected.ns}`}
+        subtitle={
+          selected &&
+          `${selected.components.length} ${
+            selected.components.length === 1 ? 'component' : 'components'
+          } · ${selected.ns}`
+        }
         onClose={() => setSelectedKey(null)}
       >
         {selected && (

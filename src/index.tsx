@@ -89,7 +89,7 @@ registerRoute({
   component: () => <AppEndpoints />,
 });
 
-// 4. Child Group: KubeVela — one heading over the pages that read it
+// 4. Child Group: App Delivery — one heading over the pages that read KubeVela
 //
 // A group rather than two more siblings of Overview. Sidebar entries nest to
 // any depth: `SidebarItem` renders its children recursively and indents each
@@ -99,7 +99,7 @@ registerRoute({
 // It also settles a naming problem. Flat beside "App Endpoints", a page called
 // "Applications" would be two entries whose labels do not distinguish them —
 // one is the catalog of what is published, the other the delivery model behind
-// it. Under a KubeVela heading the shorter label is already unambiguous, so the
+// it. Under an App Delivery heading the shorter label is already unambiguous, so the
 // heading carries the qualifier instead of every child repeating it.
 //
 // The group points at Applications: a heading has to lead somewhere when it is
@@ -108,7 +108,7 @@ registerRoute({
 registerSidebarEntry({
   parent: 'evocloud',
   name: 'evocloud-kubevela',
-  label: 'KubeVela',
+  label: 'App Delivery',
   url: '/evocloud/kubevela/applications',
 });
 
@@ -173,7 +173,7 @@ registerRoute({
 
 // 6. Child Group: Compliance — one heading over the two engines that report it
 //
-// A group for the same reasons as KubeVela above, and one more: the two pages
+// A group for the same reasons as App Delivery above, and one more: the two pages
 // do not behave alike. Kubescape's results are a snapshot read on request,
 // with a Refresh button; Kyverno's are watched and move on their own. On one
 // page that button would refresh half of it.
@@ -183,7 +183,7 @@ registerRoute({
 // already puts a "Kubescape" entry in the sidebar, and a second one here would
 // read as a duplicate of it.
 //
-// Frameworks keeps the address the single Compliance page had, so links to it
+// Security Benchmark keeps the address the single Compliance page had, so links to it
 // still land where they did.
 registerSidebarEntry({
   parent: 'evocloud',
@@ -192,11 +192,11 @@ registerSidebarEntry({
   url: '/evocloud/compliance',
 });
 
-// 6a. Frameworks — Kubescape's scores against NSA, MITRE, CIS, SOC 2 and ArmoBest
+// 6a. Security Benchmark — Kubescape's scores against NSA, MITRE, CIS, SOC 2 and ArmoBest
 registerSidebarEntry({
   parent: 'evocloud-compliance',
   name: 'evocloud-compliance-frameworks',
-  label: 'Frameworks',
+  label: 'Security Benchmark',
   url: '/evocloud/compliance',
 });
 
@@ -208,11 +208,11 @@ registerRoute({
   component: () => <Compliance />,
 });
 
-// 6b. Policies — what Kyverno's policy reports found
+// 6b. Kyverno Policies — what Kyverno's policy reports found
 registerSidebarEntry({
   parent: 'evocloud-compliance',
   name: 'evocloud-compliance-policies',
-  label: 'Policies',
+  label: 'Kyverno Policies',
   url: '/evocloud/compliance/policies',
 });
 

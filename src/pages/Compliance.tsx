@@ -1,5 +1,5 @@
 /**
- * Compliance Frameworks — how the cluster scores against the security
+ * Security Benchmark — how the cluster scores against the security
  * frameworks Kubescape checks it with.
  *
  * Kubescape's operator does the scanning: it checks every resource against its
@@ -19,23 +19,51 @@
 
 import { useCluster } from '@kinvolk/headlamp-plugin/lib/k8s';
 import React from 'react';
-import { ControlScore, FrameworkScore, scanTotals, scoreAllFrameworks } from '../k8s/kubescape';
+import {
+  ControlScore,
+  FrameworkScore,
+  scanTotals,
+  scoreAllFrameworks,
+  Severity,
+} from '../k8s/kubescape';
 import { EvoCloudPalette } from '../palette';
 import {
   Chip,
   CLIP,
   Code,
   EvoPage,
+  FilterSelect,
   GhostButton,
   MONO,
   Notice,
   NUMERIC,
+  openOnClick,
   Pill,
   Ring,
+  SearchBox,
   SectionHeading,
+  SidePanel,
+  SortHeader,
   StatGrid,
   usePalette,
+  useSidePanelViable,
 } from '../ui/chrome';
+import { SortState } from '../ui/listModel';
+import { ListToolbar, useListView } from '../ui/listView';
+import { ControlCard } from './compliance/ControlCard';
+import { ControlDetail } from './compliance/ControlDetail';
+import {
+  CONTROL_EXPORT_FIELDS,
+  CONTROL_GROUP_FIELDS,
+  CONTROL_SORT_FIELDS,
+  ControlStatus,
+  controlStatus,
+  DEFAULT_CONTROL_SORT,
+  matchesControl,
+  resourceLabel,
+  SEVERITY_ORDER,
+  STATUS_LABEL,
+} from './compliance/controlFields';
 import { InstallStep, InstallSteps, severityTone } from './compliance/shared';
 import { cveStats, scoreColor, useScanResults } from './compliance/useScanResults';
 
@@ -170,47 +198,55 @@ function FrameworkCard({
 
 const COLUMNS = '92px minmax(220px, 1fr) 96px 150px 96px 28px';
 
+/**
+ * One control in the table. Given `onOpen`, the whole row opens the control in
+ * the side panel; without it (no room for the panel) a failing control folds
+ * open to list its failing resources, as the table always did.
+ */
 function ControlRow({
   C,
   control,
   open,
   onToggle,
+  onOpen,
 }: {
   C: EvoCloudPalette;
   control: ControlScore;
   open: boolean;
   onToggle: () => void;
+  onOpen?: () => void;
 }) {
   const tone = severityTone(C, control.severity);
   const evaluated = control.evaluated > 0;
   const color = evaluated ? scoreColor(C, control.score) : C.textDimmer;
-  const expandable = control.failed > 0;
+  const expandable = control.failed > 0 && !onOpen;
+  const toggleProps = expandable
+    ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        'aria-expanded': open,
+        onClick: onToggle,
+        onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onToggle();
+          }
+        },
+      }
+    : {};
 
   return (
     <div style={{ borderTop: `1px solid ${C.divider}` }}>
       <div
-        role={expandable ? 'button' : undefined}
-        tabIndex={expandable ? 0 : undefined}
-        aria-expanded={expandable ? open : undefined}
-        onClick={expandable ? onToggle : undefined}
-        onKeyDown={
-          expandable
-            ? e => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onToggle();
-                }
-              }
-            : undefined
-        }
-        className={expandable ? 'evo-row' : undefined}
+        {...(onOpen ? openOnClick(onOpen, `${control.controlID} ${control.name}`) : toggleProps)}
+        className={onOpen || expandable ? 'evo-row' : undefined}
         style={{
           display: 'grid',
           gridTemplateColumns: COLUMNS,
           alignItems: 'center',
           gap: '12px',
           padding: '10px 14px',
-          cursor: expandable ? 'pointer' : undefined,
+          cursor: onOpen || expandable ? 'pointer' : undefined,
         }}
       >
         <span style={{ fontFamily: MONO, fontSize: '11.5px', color: C.textMuted }}>
@@ -266,7 +302,7 @@ function ControlRow({
           }}
         >
           {control.failing.map(({ resource: r, excepted }) => {
-            const label = `${r.kind} ${r.namespace ? `${r.namespace}/` : ''}${r.name}`;
+            const label = resourceLabel(r);
             return (
               <Chip
                 C={C}
@@ -284,81 +320,240 @@ function ControlRow({
   );
 }
 
-function ControlTable({ C, fs }: { C: EvoCloudPalette; fs: FrameworkScore }) {
+/** The hand-built controls table: expandable rows under sortable headers. */
+function ControlGrid({
+  C,
+  controls,
+  sort,
+  onSort,
+  onOpen,
+}: {
+  C: EvoCloudPalette;
+  controls: ControlScore[];
+  sort: SortState;
+  onSort: (key: string) => void;
+  onOpen?: (control: ControlScore) => void;
+}) {
   const [openID, setOpenID] = React.useState<string | null>(null);
-  const [failingOnly, setFailingOnly] = React.useState(true);
+  const head = (key: string, label: string, title?: string) => (
+    <SortHeader
+      C={C}
+      label={label}
+      title={title}
+      active={sort.key === key}
+      dir={sort.dir}
+      onClick={() => onSort(key)}
+    />
+  );
 
-  // Worst first: failing controls by score, then the rest by ID.
-  const sorted = [...fs.controls].sort((a, b) => {
-    if (a.failed > 0 !== b.failed > 0) return a.failed > 0 ? -1 : 1;
-    if (a.failed > 0) return a.score - b.score;
-    return a.controlID.localeCompare(b.controlID, undefined, { numeric: true });
+  return (
+    <div
+      style={{
+        background: C.surface,
+        border: `1px solid ${C.border}`,
+        borderRadius: '10px',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: COLUMNS,
+          gap: '12px',
+          padding: '9px 14px',
+          background: C.surfaceSunken,
+          fontSize: '10px',
+          fontWeight: 700,
+          letterSpacing: '0.11em',
+          textTransform: 'uppercase',
+          color: C.textFaint,
+        }}
+      >
+        {head('id', 'Control')}
+        {head('name', 'Name')}
+        {head('severity', 'Severity')}
+        {head('score', 'Score')}
+        {head('failing', 'Failing', 'Resources failing / resources checked')}
+        <span />
+      </div>
+      {controls.map(control => (
+        <ControlRow
+          key={control.controlID}
+          C={C}
+          control={control}
+          open={openID === control.controlID}
+          onToggle={() => setOpenID(id => (id === control.controlID ? null : control.controlID))}
+          onOpen={onOpen ? () => onOpen(control) : undefined}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The selected framework's controls, with the list standard: search and
+ * filters, then group, sort, export and cards or table.
+ *
+ * Keyed by framework where it is used, so switching framework starts its
+ * filters afresh; view, sort and grouping are remembered across frameworks.
+ */
+function ControlTable({
+  C,
+  fs,
+  onOpen,
+}: {
+  C: EvoCloudPalette;
+  fs: FrameworkScore;
+  /** Given, rows and cards open the control in the side panel. */
+  onOpen?: (control: ControlScore) => void;
+}) {
+  const anyFailing = fs.controls.some(c => c.failed > 0);
+  const [q, setQ] = React.useState('');
+  // Failing only by default, unless nothing fails: then an empty list would
+  // say less than the full one.
+  const [status, setStatus] = React.useState<'all' | ControlStatus>(anyFailing ? 'failing' : 'all');
+  const [severity, setSeverity] = React.useState<'all' | Severity>('all');
+  const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
+  const [closed, setClosed] = React.useState<Record<string, boolean>>({});
+
+  const shown = React.useMemo(
+    () => fs.controls.filter(c => matchesControl(c, { query: q, status, severity })),
+    [fs.controls, q, status, severity]
+  );
+  const list = useListView({
+    id: 'compliance-controls',
+    rows: shown,
+    sortFields: CONTROL_SORT_FIELDS,
+    groupFields: CONTROL_GROUP_FIELDS,
+    defaultSort: DEFAULT_CONTROL_SORT,
+    defaultView: 'list',
   });
-  const shown = failingOnly ? sorted.filter(c => c.failed > 0) : sorted;
+
+  const filtering = !!q.trim() || status !== 'all' || severity !== 'all';
+  const clearFilters = () => {
+    setQ('');
+    setStatus('all');
+    setSeverity('all');
+  };
+
+  const countBy = (pick: (c: ControlScore) => boolean) => fs.controls.filter(pick).length;
+  const statusOptions = [
+    { value: 'all', label: `Any status (${fs.controls.length})` },
+    ...(['failing', 'passing', 'not-evaluated'] as ControlStatus[]).map(value => ({
+      value,
+      label: `${STATUS_LABEL[value]} (${countBy(c => controlStatus(c) === value)})`,
+    })),
+  ];
+  const severityOptions = [
+    { value: 'all', label: 'Any severity' },
+    ...SEVERITY_ORDER.filter(sev => fs.controls.some(c => c.severity === sev)).map(sev => ({
+      value: sev,
+      label: `${sev} (${countBy(c => c.severity === sev)})`,
+    })),
+  ];
+
+  const onlyStatusFilter = status === 'failing' && !q.trim() && severity === 'all';
 
   return (
     <>
-      <SectionHeading
+      <SectionHeading C={C} label={`${fs.framework.label} controls`} count={shown.length} />
+      <ListToolbar
         C={C}
-        label={`${fs.framework.label} controls`}
-        count={shown.length}
-        right={
-          <GhostButton
-            C={C}
-            active={!failingOnly}
-            onClick={() => setFailingOnly(v => !v)}
-            title="Switch between failing controls and every control in the framework"
-          >
-            {failingOnly ? `Show all ${fs.controls.length}` : 'Failing only'}
-          </GhostButton>
+        list={list}
+        shown={shown.length}
+        total={fs.controls.length}
+        noun="controls"
+        onClearFilters={filtering ? clearFilters : undefined}
+        sortFields={CONTROL_SORT_FIELDS}
+        groupFields={CONTROL_GROUP_FIELDS}
+        exportFields={CONTROL_EXPORT_FIELDS}
+        exportName={`${fs.framework.label} controls`}
+        filters={
+          <>
+            <SearchBox
+              C={C}
+              value={q}
+              onChange={setQ}
+              placeholder="Filter controls"
+              width="200px"
+            />
+            <FilterSelect
+              C={C}
+              value={status}
+              onChange={v => setStatus(v as 'all' | ControlStatus)}
+              options={statusOptions}
+              label="Filter controls by status"
+            />
+            <FilterSelect
+              C={C}
+              value={severity}
+              onChange={v => setSeverity(v as 'all' | Severity)}
+              options={severityOptions}
+              label="Filter controls by severity"
+            />
+          </>
         }
       />
       {shown.length === 0 ? (
-        <Notice C={C} title={`No ${fs.framework.label} control is failing`}>
-          Every control in this framework passed on every resource it checked.
-        </Notice>
+        onlyStatusFilter ? (
+          <Notice C={C} title={`No ${fs.framework.label} control is failing`}>
+            Every control in this framework passed on every resource it checked.
+          </Notice>
+        ) : (
+          <Notice C={C} title="No controls match the current filters" />
+        )
       ) : (
-        <div
-          style={{
-            background: C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: '10px',
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: COLUMNS,
-              gap: '12px',
-              padding: '9px 14px',
-              background: C.surfaceSunken,
-              fontSize: '10px',
-              fontWeight: 700,
-              letterSpacing: '0.11em',
-              textTransform: 'uppercase',
-              color: C.textFaint,
-            }}
-          >
-            <span>Control</span>
-            <span>Name</span>
-            <span>Severity</span>
-            <span>Score</span>
-            <span title="Resources failing / resources checked">Failing</span>
-            <span />
-          </div>
-          {shown.map(control => (
-            <ControlRow
-              key={control.controlID}
-              C={C}
-              control={control}
-              open={openID === control.controlID}
-              onToggle={() =>
-                setOpenID(id => (id === control.controlID ? null : control.controlID))
-              }
-            />
-          ))}
-        </div>
+        list.groups.map(group => {
+          const open = !closed[group.name];
+          return (
+            <section key={group.name} style={{ marginBottom: list.grouped ? '22px' : 0 }}>
+              {list.grouped && (
+                <SectionHeading
+                  C={C}
+                  label={group.name}
+                  count={group.rows.length}
+                  open={open}
+                  onToggle={() => setClosed(st => ({ ...st, [group.name]: !st[group.name] }))}
+                />
+              )}
+              {open &&
+                (list.view === 'grid' ? (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                      gap: '12px',
+                      alignItems: 'start',
+                    }}
+                  >
+                    {group.rows.map(control => (
+                      <ControlCard
+                        key={control.controlID}
+                        C={C}
+                        control={control}
+                        expanded={!!expanded[control.controlID]}
+                        onToggle={() =>
+                          setExpanded(st => ({
+                            ...st,
+                            [control.controlID]: !st[control.controlID],
+                          }))
+                        }
+                        onOpen={onOpen ? () => onOpen(control) : undefined}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <ControlGrid
+                    C={C}
+                    controls={group.rows}
+                    sort={list.sort}
+                    onSort={list.sortBy}
+                    onOpen={onOpen}
+                  />
+                ))}
+            </section>
+          );
+        })
       )}
     </>
   );
@@ -371,11 +566,21 @@ export default function Compliance() {
   const cluster = useCluster() ?? '';
   const { snapshot, phase, read, error, fetching, refresh } = useScanResults(cluster);
   const [selected, setSelected] = React.useState('NSA');
+  /**
+   * The control in the side panel, by ID rather than the score itself, so the
+   * panel re-reads the current framework's scores on every render: a refresh
+   * updates it in place, and a control that is no longer there closes it.
+   */
+  const [selectedControlID, setSelectedControlID] = React.useState<string | null>(null);
+  const panelViable = useSidePanelViable();
+  const closePanel = React.useCallback(() => setSelectedControlID(null), []);
 
   const resources = snapshot?.resources ?? [];
   const frameworks = React.useMemo(() => scoreAllFrameworks(resources), [resources]);
   const totals = React.useMemo(() => scanTotals(resources), [resources]);
   const current = frameworks.find(f => f.framework.name === selected) ?? frameworks[0];
+  const selectedControl =
+    (selectedControlID && current?.controls.find(c => c.controlID === selectedControlID)) || null;
 
   let summary: React.ReactNode;
   if (fetching) {
@@ -545,19 +750,49 @@ export default function Compliance() {
               C={C}
               fs={fs}
               selected={fs.framework.name === current?.framework.name}
-              onSelect={() => setSelected(fs.framework.name)}
+              onSelect={() => {
+                setSelected(fs.framework.name);
+                setSelectedControlID(null);
+              }}
             />
           ))}
         </div>
 
-        {current && <ControlTable key={current.framework.name} C={C} fs={current} />}
+        {current && (
+          <ControlTable
+            key={current.framework.name}
+            C={C}
+            fs={current}
+            onOpen={panelViable ? control => setSelectedControlID(control.controlID) : undefined}
+          />
+        )}
       </>
     );
   }
 
   return (
-    <EvoPage section="Compliance" title="Frameworks" summary={summary} actions={actions}>
+    <EvoPage section="Compliance" title="Security Benchmark" summary={summary} actions={actions}>
       {body}
+
+      <SidePanel
+        C={C}
+        open={!!selectedControl}
+        title={selectedControl?.name ?? ''}
+        subtitle={
+          selectedControl && current && `${selectedControl.controlID} · ${current.framework.label}`
+        }
+        onClose={closePanel}
+      >
+        {selectedControl && current && (
+          <div style={{ padding: '16px' }}>
+            <ControlDetail
+              C={C}
+              control={selectedControl}
+              frameworkLabel={current.framework.label}
+            />
+          </div>
+        )}
+      </SidePanel>
     </EvoPage>
   );
 }

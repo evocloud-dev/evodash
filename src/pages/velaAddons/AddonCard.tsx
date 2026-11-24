@@ -8,7 +8,7 @@
  */
 import React from 'react';
 import { EvoCloudPalette } from '../../palette';
-import { Chip, CLIP, MONO, Pill, RemoteIcon } from '../../ui/chrome';
+import { Chip, CLIP, MONO, openOnClick, Pill, RemoteIcon } from '../../ui/chrome';
 import { AddonView } from './model';
 
 /** Two lines of description, then an ellipsis — cards must stay the same height. */
@@ -33,20 +33,7 @@ export function AddonCard({
   return (
     <div
       className="evo-card"
-      {...(onOpen
-        ? {
-            role: 'button' as const,
-            tabIndex: 0,
-            onClick: onOpen,
-            onKeyDown: (e: React.KeyboardEvent) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onOpen();
-              }
-            },
-            title: `Open ${addon.name}`,
-          }
-        : {})}
+      {...(onOpen ? openOnClick(onOpen, addon.name) : {})}
       style={{
         display: 'flex',
         flexDirection: 'column',

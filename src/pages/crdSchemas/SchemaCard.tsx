@@ -13,7 +13,16 @@
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { EvoCloudPalette } from '../../palette';
-import { ChevronIcon, Chip, CLIP, MONO, NUMERIC, openInPanel, Pill } from '../../ui/chrome';
+import {
+  ChevronIcon,
+  Chip,
+  CLIP,
+  MONO,
+  NUMERIC,
+  openInPanel,
+  openOnClick,
+  Pill,
+} from '../../ui/chrome';
 import { metaTone, SchemaView, scopeNote } from './model';
 
 /** "Go to this page", as opposed to chrome's OpenIcon, which leaves Headlamp. */
@@ -44,7 +53,10 @@ export function SchemaCard({
   C: EvoCloudPalette;
   schema: SchemaView;
   href: string;
-  /** Given, a plain click opens the side panel instead of navigating. */
+  /**
+   * Given, a plain click anywhere on the card (the kind link included) opens
+   * the side panel instead of navigating.
+   */
   onOpen?: () => void;
   expanded: boolean;
   onToggle: () => void;
@@ -52,7 +64,9 @@ export function SchemaCard({
   return (
     <div
       className="evo-card"
+      {...(onOpen ? openOnClick(onOpen, `${schema.kind} ${schema.version}`) : {})}
       style={{
+        cursor: onOpen ? 'pointer' : undefined,
         background: C.surface,
         border: `1px solid ${C.border}`,
         borderRadius: '10px',

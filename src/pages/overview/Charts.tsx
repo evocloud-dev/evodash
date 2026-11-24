@@ -117,7 +117,9 @@ export function BarChart({
         return (
           <div
             key={row.label}
-            {...bind(`${row.label} — ${row.value} ${unit}${row.value === 1 ? '' : 's'} · ${share}%`)}
+            {...bind(
+              `${row.label} — ${row.value} ${unit}${row.value === 1 ? '' : 's'} · ${share}%`
+            )}
             style={{
               display: 'grid',
               gridTemplateColumns: 'minmax(0, 150px) 1fr auto',
@@ -133,7 +135,14 @@ export function BarChart({
 
             {/* The track is not a gridline — it is the slot the bar grows in,
                 one step off the surface so the empty remainder stays legible. */}
-            <span style={{ display: 'block', height: '14px', background: C.surfaceSunken, borderRadius: '2px' }}>
+            <span
+              style={{
+                display: 'block',
+                height: '14px',
+                background: C.surfaceSunken,
+                borderRadius: '2px',
+              }}
+            >
               <span
                 style={{
                   display: 'block',
@@ -146,7 +155,16 @@ export function BarChart({
               />
             </span>
 
-            <span style={{ ...NUMERIC, fontSize: '12px', fontWeight: 600, color: C.textValue, minWidth: '26px', textAlign: 'right' }}>
+            <span
+              style={{
+                ...NUMERIC,
+                fontSize: '12px',
+                fontWeight: 600,
+                color: C.textValue,
+                minWidth: '26px',
+                textAlign: 'right',
+              }}
+            >
               {row.value}
             </span>
           </div>
@@ -168,7 +186,21 @@ export function BarChart({
  * clipped label is worse than none, so the legend underneath carries every
  * value in full.
  */
-export function StackedBar({ C, slices, unit }: { C: EvoCloudPalette; slices: Slice[]; unit: string }) {
+export function StackedBar({
+  C,
+  slices,
+  unit,
+  legend = true,
+}: {
+  C: EvoCloudPalette;
+  slices: Slice[];
+  unit: string;
+  /**
+   * Off only when the caller labels every slice itself, with its colour and
+   * count, as SourceTable does.
+   */
+  legend?: boolean;
+}) {
   const series = useSeries();
   const { tip, bind } = useTooltip();
   const total = slices.reduce((n, s) => n + s.value, 0);
@@ -180,14 +212,18 @@ export function StackedBar({ C, slices, unit }: { C: EvoCloudPalette; slices: Sl
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: '2px', height: '14px', marginBottom: '12px' }}>
+      <div
+        style={{ display: 'flex', gap: '2px', height: '14px', marginBottom: legend ? '12px' : 0 }}
+      >
         {shown.map(slice => {
           const i = slices.indexOf(slice);
           const share = Math.round((slice.value / total) * 100);
           return (
             <div
               key={slice.label}
-              {...bind(`${slice.label} — ${slice.value} ${unit}${slice.value === 1 ? '' : 's'} · ${share}%`)}
+              {...bind(
+                `${slice.label} — ${slice.value} ${unit}${slice.value === 1 ? '' : 's'} · ${share}%`
+              )}
               style={{
                 flex: `${slice.value} 0 0`,
                 background: series[i % series.length],
@@ -202,27 +238,166 @@ export function StackedBar({ C, slices, unit }: { C: EvoCloudPalette; slices: Sl
       {/* Always present, and always with the number spelled out: identity never
           rests on colour alone, and one of these hues sits under 3:1 on the
           light surface, which obliges a visible label. */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
-        {slices.map((slice, i) => (
-          <span key={slice.label} style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+      {legend && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
+          {slices.map((slice, i) => (
+            <span
+              key={slice.label}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}
+            >
+              <span
+                style={{
+                  width: '9px',
+                  height: '9px',
+                  flex: 'none',
+                  borderRadius: '2px',
+                  background: series[i % series.length],
+                  opacity: slice.value > 0 ? 1 : 0.35,
+                }}
+              />
+              <span style={{ ...CLIP, fontSize: '11.5px', color: C.textMuted }}>{slice.label}</span>
+              <span
+                style={{
+                  ...NUMERIC,
+                  fontSize: '11.5px',
+                  fontWeight: 600,
+                  fontFamily: MONO,
+                  color: C.textValue,
+                }}
+              >
+                {slice.value}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
+      {tip && <Tooltip C={C} tip={tip} />}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------- source table */
+
+export interface SourceRow {
+  label: string;
+  apps: number;
+  /** Apps with a URL to open. */
+  reachable: number;
+  restricted: number;
+}
+
+// The label column keeps room for "HTTPRoute" and its swatch; the numbers
+// share what is left, so the table fits a panel a third of the page wide.
+const SOURCE_COLUMNS = 'minmax(96px, 1fr) repeat(3, minmax(0, 76px))';
+
+/**
+ * The source bar's breakdown: one row per source, in the bar's order and
+ * colours, plus a total.
+ *
+ * It stands in for the bar's legend, so it keeps the legend's promise: every
+ * source is named and counted in text, with its swatch beside it.
+ */
+export function SourceTable({
+  C,
+  rows,
+  total,
+  note,
+}: {
+  C: EvoCloudPalette;
+  rows: SourceRow[];
+  total: SourceRow;
+  /** One line of context under the total. */
+  note?: string;
+}) {
+  const series = useSeries();
+  const head: React.CSSProperties = {
+    fontSize: '10px',
+    fontWeight: 700,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+    color: C.textDimmer,
+    whiteSpace: 'nowrap',
+  };
+  const num: React.CSSProperties = {
+    ...NUMERIC,
+    fontFamily: MONO,
+    fontSize: '12px',
+    textAlign: 'right',
+  };
+
+  const line = (row: SourceRow, swatch: string | null, isTotal: boolean) => {
+    const empty = row.apps === 0;
+    const color = empty ? C.textDimmer : isTotal ? C.text : C.textValue;
+    return (
+      <div
+        key={row.label}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: SOURCE_COLUMNS,
+          alignItems: 'center',
+          gap: '8px',
+          padding: '7px 0',
+          borderTop: `1px solid ${C.divider}`,
+          fontWeight: isTotal ? 700 : 400,
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+          {swatch && (
             <span
               style={{
                 width: '9px',
                 height: '9px',
                 flex: 'none',
                 borderRadius: '2px',
-                background: series[i % series.length],
-                opacity: slice.value > 0 ? 1 : 0.35,
+                background: swatch,
+                opacity: empty ? 0.35 : 1,
               }}
             />
-            <span style={{ ...CLIP, fontSize: '11.5px', color: C.textMuted }}>{slice.label}</span>
-            <span style={{ ...NUMERIC, fontSize: '11.5px', fontWeight: 600, fontFamily: MONO, color: C.textValue }}>
-              {slice.value}
-            </span>
+          )}
+          <span style={{ ...CLIP, fontSize: '12.5px', color: empty ? C.textDimmer : C.textMuted }}>
+            {row.label}
           </span>
-        ))}
+        </span>
+        <span style={{ ...num, color, fontWeight: 600 }}>{row.apps}</span>
+        <span style={{ ...num, color }}>{row.reachable}</span>
+        <span style={{ ...num, color }}>{row.restricted}</span>
       </div>
-      {tip && <Tooltip C={C} tip={tip} />}
+    );
+  };
+
+  return (
+    <div style={{ marginTop: '14px' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: SOURCE_COLUMNS,
+          gap: '8px',
+          paddingBottom: '6px',
+        }}
+      >
+        <span style={head}>Source</span>
+        <span style={{ ...head, textAlign: 'right' }}>Apps</span>
+        <span style={{ ...head, textAlign: 'right' }} title="Apps with a URL to open">
+          Reachable
+        </span>
+        <span style={{ ...head, textAlign: 'right' }} title="Apps marked network-restricted">
+          Restricted
+        </span>
+      </div>
+      {rows.map((row, i) => line(row, series[i % series.length], false))}
+      {line(total, null, true)}
+      {note && (
+        <div
+          style={{
+            paddingTop: '8px',
+            borderTop: `1px solid ${C.divider}`,
+            fontSize: '11.5px',
+            color: C.textDimmer,
+          }}
+        >
+          {note}
+        </div>
+      )}
     </div>
   );
 }

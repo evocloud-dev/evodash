@@ -10,15 +10,26 @@
  */
 
 import React from 'react';
-import { FailureAction, PolicyScore, readyToEnforce, SEVERITY_RANK } from '../../k8s/kyverno';
+import { FailureAction, PolicyScore, readyToEnforce } from '../../k8s/kyverno';
 import { isSystemNamespace } from '../../k8s/namespaces';
 import { EvoCloudPalette } from '../../palette';
-import { Chip, CLIP, Code, MONO, Notice, NUMERIC, Pill } from '../../ui/chrome';
+import {
+  Chip,
+  CLIP,
+  Code,
+  MONO,
+  Notice,
+  NUMERIC,
+  openOnClick,
+  Pill,
+  SortHeader,
+} from '../../ui/chrome';
+import { SortState } from '../../ui/listModel';
 import { Caption, ResourceChip, severityTone } from './shared';
 import { scoreColor } from './useScanResults';
 
 /** Enforcing is the strong claim, so only that gets the healthy colour. */
-function actionTone(C: EvoCloudPalette, action: FailureAction) {
+export function actionTone(C: EvoCloudPalette, action: FailureAction) {
   switch (action) {
     case 'Enforce':
       return { fg: C.healthy, bg: C.healthySoft, border: C.healthyBorder };
@@ -31,7 +42,7 @@ function actionTone(C: EvoCloudPalette, action: FailureAction) {
   }
 }
 
-function actionTitle(action: FailureAction): string {
+export function actionTitle(action: FailureAction): string {
   switch (action) {
     case 'Enforce':
       return 'Violations are blocked at admission.';
@@ -49,7 +60,7 @@ function actionTitle(action: FailureAction): string {
  * A chart-installed policy edited in place would be put back on the next
  * upgrade, so for those the answer is the chart's own setting.
  */
-function enforceHow(p: PolicyScore): React.ReactNode {
+export function enforceHow(p: PolicyScore): React.ReactNode {
   if (p.kind === 'ValidatingPolicy') {
     return (
       <>
@@ -73,11 +84,25 @@ function enforceHow(p: PolicyScore): React.ReactNode {
   );
 }
 
+/** Every resource failing the policy is a platform component, none a workload. */
+export function failsOnlyInSystem(p: PolicyScore): boolean {
+  return p.failed > 0 && p.failing.every(f => isSystemNamespace(f.resource.namespace));
+}
+
+/** The policy's failing resources, workloads before system components. */
+export function workloadsFirst(p: PolicyScore) {
+  return [...p.failing].sort(
+    (a, b) =>
+      Number(isSystemNamespace(a.resource.namespace)) -
+      Number(isSystemNamespace(b.resource.namespace))
+  );
+}
+
 /* ------------------------------------------------------------------ table */
 
 const COLUMNS = '92px minmax(220px, 1fr) 96px 150px 96px 28px';
 
-function Callout({
+export function Callout({
   C,
   tone,
   children,
@@ -109,11 +134,14 @@ function PolicyRow({
   policy,
   open,
   onToggle,
+  onOpen,
 }: {
   C: EvoCloudPalette;
   policy: PolicyScore;
   open: boolean;
   onToggle: () => void;
+  /** Given, a click opens the side panel instead of expanding the row. */
+  onOpen?: () => void;
 }) {
   const severity = severityTone(C, policy.meta.severity);
   const action = actionTone(C, policy.action);
@@ -121,30 +149,30 @@ function PolicyRow({
   const color = evaluated ? scoreColor(C, policy.score) : C.textDimmer;
   const notReady = policy.ready?.state === 'failed';
   const ready = readyToEnforce(policy);
-  const systemOnly =
-    policy.failed > 0 && policy.failing.every(f => isSystemNamespace(f.resource.namespace));
+  const systemOnly = failsOnlyInSystem(policy);
   const { pass, fail, warn, error, skip } = policy.checks;
 
   // Workloads first, as in the by-resource view.
-  const failing = [...policy.failing].sort(
-    (a, b) =>
-      Number(isSystemNamespace(a.resource.namespace)) -
-      Number(isSystemNamespace(b.resource.namespace))
-  );
+  const failing = workloadsFirst(policy);
+  const expanded = open && !onOpen;
 
   return (
     <div style={{ borderTop: `1px solid ${C.divider}` }}>
       <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        onClick={onToggle}
-        onKeyDown={e => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onToggle();
-          }
-        }}
+        {...(onOpen
+          ? openOnClick(onOpen, policy.meta.title)
+          : {
+              role: 'button' as const,
+              tabIndex: 0,
+              'aria-expanded': open,
+              onClick: onToggle,
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onToggle();
+                }
+              },
+            })}
         className="evo-row"
         style={{
           display: 'grid',
@@ -234,11 +262,11 @@ function PolicyRow({
           {evaluated ? `${policy.failed} / ${policy.evaluated}` : 'n/a'}
         </span>
         <span style={{ color: C.textDim, fontSize: '11px', textAlign: 'center' }}>
-          {open ? '▾' : '▸'}
+          {onOpen ? '' : open ? '▾' : '▸'}
         </span>
       </div>
 
-      {open && (
+      {expanded && (
         <div
           style={{
             display: 'flex',
@@ -319,18 +347,37 @@ function PolicyRow({
   );
 }
 
-/** Worst first: failing policies by score, then by severity and title. */
-export function sortPolicies(policies: PolicyScore[]): PolicyScore[] {
-  return [...policies].sort((a, b) => {
-    if (a.failed > 0 !== b.failed > 0) return a.failed > 0 ? -1 : 1;
-    if (a.failed > 0 && a.score !== b.score) return a.score - b.score;
-    const bySeverity = SEVERITY_RANK[b.meta.severity] - SEVERITY_RANK[a.meta.severity];
-    return bySeverity || a.meta.title.localeCompare(b.meta.title);
-  });
-}
-
-export function PolicyTable({ C, policies }: { C: EvoCloudPalette; policies: PolicyScore[] }) {
+export function PolicyTable({
+  C,
+  policies,
+  sort,
+  onSort,
+  onOpen,
+}: {
+  C: EvoCloudPalette;
+  policies: PolicyScore[];
+  /** Given, clicking a policy opens it in the side panel instead of expanding it. */
+  onOpen?: (policy: PolicyScore) => void;
+  /** The list's current order, to mark its column. */
+  sort?: SortState;
+  /** Given, the headers sort the list when clicked. See policyFields.ts for the keys. */
+  onSort?: (key: string) => void;
+}) {
   const [openKey, setOpenKey] = React.useState<string | null>(null);
+
+  const head = (key: string, label: string, title?: string) =>
+    onSort ? (
+      <SortHeader
+        C={C}
+        label={label}
+        title={title}
+        active={sort?.key === key}
+        dir={sort?.dir ?? 'asc'}
+        onClick={() => onSort(key)}
+      />
+    ) : (
+      <span title={title}>{label}</span>
+    );
 
   if (policies.length === 0) {
     return (
@@ -363,11 +410,11 @@ export function PolicyTable({ C, policies }: { C: EvoCloudPalette; policies: Pol
           color: C.textFaint,
         }}
       >
-        <span title="What a violation does: Enforce blocks it, Audit records it">Mode</span>
-        <span>Policy</span>
-        <span>Severity</span>
-        <span>Score</span>
-        <span title="Resources failing / resources checked">Failing</span>
+        {head('mode', 'Mode', 'What a violation does: Enforce blocks it, Audit records it')}
+        {head('title', 'Policy')}
+        {head('severity', 'Severity')}
+        {head('score', 'Score')}
+        {head('failing', 'Failing', 'Resources failing / resources checked')}
         <span />
       </div>
       {policies.map(policy => (
@@ -377,6 +424,7 @@ export function PolicyTable({ C, policies }: { C: EvoCloudPalette; policies: Pol
           policy={policy}
           open={openKey === policy.key}
           onToggle={() => setOpenKey(k => (k === policy.key ? null : policy.key))}
+          onOpen={onOpen ? () => onOpen(policy) : undefined}
         />
       ))}
     </div>

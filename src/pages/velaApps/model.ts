@@ -5,7 +5,7 @@
  * page is composition, and what counts as a match or how a setting is rendered
  * is testable on its own once it is not tangled up in JSX.
  */
-import { Readiness } from '../../k8s/conditions';
+import { Readiness, ReadyState } from '../../k8s/conditions';
 import {
   addonOf,
   appHealth,
@@ -24,6 +24,7 @@ import {
   workflowOf,
   WorkflowStatus,
 } from '../../k8s/kubevela';
+import { ExportField, GroupField, SortField, SortState } from '../../ui/listModel';
 
 /** One Application, with everything the page reads already pulled out of it. */
 export interface AppView {
@@ -131,6 +132,95 @@ export function matchesApp(view: AppView, filter: AppFilter): boolean {
   }
   return true;
 }
+
+/** The workflow in numbers: its status and how many steps have succeeded. */
+export function workflowProgress(
+  view: AppView
+): { status: string; done: number; total: number } | null {
+  if (!view.workflow) {
+    return null;
+  }
+  const steps = view.workflow.steps ?? [];
+  return {
+    status: view.workflow.status ?? 'unknown',
+    done: steps.filter(s => s.phase === 'succeeded').length,
+    total: steps.length,
+  };
+}
+
+/* ------------------------------------------------- sort, group and export */
+
+/** Problems first: what needs looking at sorts to the top. */
+const STATE_ORDER: ReadyState[] = ['failed', 'reconciling', 'suspended', 'unknown', 'ready'];
+
+const STATE_LABEL: Record<ReadyState, string> = {
+  failed: 'Failed',
+  reconciling: 'In progress',
+  suspended: 'Suspended',
+  unknown: 'Unknown',
+  ready: 'Running',
+};
+
+export const SORT_FIELDS: SortField<AppView>[] = [
+  { key: 'name', label: 'Name', value: v => v.name },
+  { key: 'ns', label: 'Namespace', value: v => v.ns },
+  {
+    key: 'status',
+    label: 'Status (problems first)',
+    value: v => STATE_ORDER.indexOf(v.health.state),
+  },
+  { key: 'components', label: 'Components', value: v => v.components.length, firstDir: 'desc' },
+  {
+    key: 'workflow',
+    label: 'Workflow progress',
+    value: v => {
+      const p = workflowProgress(v);
+      return p && p.total ? p.done / p.total : null;
+    },
+  },
+  { key: 'revision', label: 'Revision', value: v => v.revision },
+  {
+    key: 'age',
+    label: 'Created',
+    value: v => (v.created ? Date.parse(v.created) : null),
+    firstDir: 'desc',
+  },
+];
+
+export const DEFAULT_SORT: SortState = { key: 'ns', dir: 'asc' };
+
+export const GROUP_FIELDS: GroupField<AppView>[] = [
+  { key: 'ns', label: 'Namespace', value: v => v.ns },
+  {
+    key: 'status',
+    label: 'Status',
+    value: v => STATE_LABEL[v.health.state],
+    order: STATE_ORDER.map(s => STATE_LABEL[s]),
+  },
+  {
+    key: 'origin',
+    label: 'Origin',
+    value: v => (v.addon ? 'Addons' : 'Deployed apps'),
+    order: ['Deployed apps', 'Addons'],
+  },
+];
+
+export const EXPORT_FIELDS: ExportField<AppView>[] = [
+  { label: 'name', value: v => v.name },
+  { label: 'namespace', value: v => v.ns },
+  { label: 'status', value: v => v.health.label },
+  { label: 'message', value: v => v.health.message ?? null },
+  { label: 'addon', value: v => v.addon?.name ?? null },
+  { label: 'components', value: v => v.components.length },
+  { label: 'healthy components', value: v => v.healthyServices },
+  { label: 'component types', value: v => v.types.join(' ') },
+  { label: 'workflow', value: v => v.workflow?.status ?? null },
+  { label: 'workflow steps done', value: v => workflowProgress(v)?.done ?? null },
+  { label: 'workflow steps', value: v => workflowProgress(v)?.total ?? null },
+  { label: 'policies', value: v => v.policies.length },
+  { label: 'revision', value: v => v.revision },
+  { label: 'created', value: v => v.created },
+];
 
 /**
  * How one setting wants to be drawn.

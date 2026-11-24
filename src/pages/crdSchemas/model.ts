@@ -14,6 +14,7 @@
 import { countFields, CrdSpec, OpenAPIV3Schema, SchemaField } from '../../k8s/crdSchema';
 import { EvoCloudPalette } from '../../palette';
 import { fuzzyMatch, fuzzyMatchAny } from '../../ui/chrome';
+import { ExportField, GroupField, SortField, SortState } from '../../ui/listModel';
 
 /**
  * A row in an expanded card.
@@ -118,17 +119,29 @@ export function versionsOf(schemas: SchemaView[], crdName: string): SchemaView[]
  * contract is the one the page opens on.
  */
 export function compareVersions(a: { version: string }, b: { version: string }): number {
-  const rank = (v: string): [number, number, number] => {
-    const m = /^v(\d+)(?:(alpha|beta)(\d+))?$/.exec(v);
-    if (!m) {
-      return [-1, 0, 0];
-    }
-    const stage = m[2] === 'alpha' ? 0 : m[2] === 'beta' ? 1 : 2;
-    return [stage, Number(m[1]), Number(m[3] ?? 0)];
-  };
-  const [as, amaj, amin] = rank(a.version);
-  const [bs, bmaj, bmin] = rank(b.version);
+  const [as, amaj, amin] = versionParts(a.version);
+  const [bs, bmaj, bmin] = versionParts(b.version);
   return bs - as || bmaj - amaj || bmin - amin || a.version.localeCompare(b.version);
+}
+
+/** Stage (alpha 0, beta 1, GA 2), major, minor; [-1, 0, 0] for a name that is no Kubernetes version. */
+function versionParts(v: string): [number, number, number] {
+  const m = /^v(\d+)(?:(alpha|beta)(\d+))?$/.exec(v);
+  if (!m) {
+    return [-1, 0, 0];
+  }
+  const stage = m[2] === 'alpha' ? 0 : m[2] === 'beta' ? 1 : 2;
+  return [stage, Number(m[1]), Number(m[3] ?? 0)];
+}
+
+/**
+ * {@link compareVersions} as one number, higher meaning newer, for sorting a
+ * list by version: v1 above v1beta2 above v1beta1 above v1alpha1, and v10 above
+ * v2. A name that is not a Kubernetes version ranks below all of them.
+ */
+export function versionRank(version: string): number {
+  const [stage, major, minor] = versionParts(version);
+  return stage < 0 ? -1 : stage * 1e8 + Math.min(major, 9999) * 1e4 + Math.min(minor, 9999);
 }
 
 /** Distinct API groups actually present, alphabetically. */
@@ -155,23 +168,56 @@ export function matchesFilters(s: SchemaView, f: Filters): boolean {
   );
 }
 
-/** Schemas under their API group heading, empty groups dropped. */
-export function groupSchemas(
-  schemas: SchemaView[],
-  f: Filters
-): { name: string; schemas: SchemaView[] }[] {
-  return groupsOf(schemas)
-    .filter(name => f.group === 'all' || name === f.group)
-    .map(name => ({
-      name,
-      schemas: schemas
-        .filter(s => s.group === name && matchesFilters(s, f))
-        // Kind first, then the version ladder, so the two contracts of one kind
-        // sit together with the current one on top.
-        .sort((a, b) => a.kind.localeCompare(b.kind) || compareVersions(a, b)),
-    }))
-    .filter(g => g.schemas.length > 0);
+/**
+ * Kind first, then the version ladder, so the two contracts of one kind sit
+ * together with the current one on top. The list hands this order to the sort
+ * as its tie-break, so sorting by anything else still keeps a kind's versions
+ * in this order.
+ */
+export function orderSchemas(schemas: SchemaView[]): SchemaView[] {
+  return [...schemas].sort((a, b) => a.kind.localeCompare(b.kind) || compareVersions(a, b));
 }
+
+/* ------------------------------------------------- sort, group and export */
+
+const scopeOf = (s: SchemaView) => (s.namespaced ? 'Namespaced' : 'Cluster');
+
+export const SORT_FIELDS: SortField<SchemaView>[] = [
+  { key: 'kind', label: 'Kind', value: s => s.kind },
+  { key: 'group', label: 'API group', value: s => s.group },
+  { key: 'version', label: 'Version', value: s => versionRank(s.version), firstDir: 'desc' },
+  { key: 'scope', label: 'Scope', value: scopeOf },
+  { key: 'fields', label: 'Fields', value: s => s.fieldCount, firstDir: 'desc' },
+  {
+    key: 'age',
+    label: 'Installed',
+    value: s => (s.created ? Date.parse(s.created) : null),
+    firstDir: 'desc',
+  },
+];
+
+export const DEFAULT_SORT: SortState = { key: 'kind', dir: 'asc' };
+
+export const GROUP_FIELDS: GroupField<SchemaView>[] = [
+  { key: 'group', label: 'API group', value: s => s.group },
+  { key: 'scope', label: 'Scope', value: scopeOf, order: ['Namespaced', 'Cluster'] },
+  { key: 'category', label: 'Category', value: s => s.categories[0] ?? 'Uncategorised' },
+];
+
+export const EXPORT_FIELDS: ExportField<SchemaView>[] = [
+  { label: 'kind', value: s => s.kind },
+  { label: 'group', value: s => s.group },
+  { label: 'version', value: s => s.version },
+  { label: 'plural', value: s => s.plural },
+  { label: 'scope', value: scopeOf },
+  { label: 'served', value: s => s.served },
+  { label: 'storage', value: s => s.storage },
+  { label: 'short names', value: s => s.shortNames.join(' ') },
+  { label: 'categories', value: s => s.categories.join(' ') },
+  { label: 'fields', value: s => s.fieldCount },
+  { label: 'created', value: s => s.created ?? null },
+  { label: 'crd', value: s => s.crdName },
+];
 
 /* ------------------------------------------------------------ field search */
 

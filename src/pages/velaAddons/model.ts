@@ -8,6 +8,7 @@
  */
 import { CatalogAddon, compareVersions, InstalledAddon } from '../../k8s/velaAddons';
 import { fuzzyMatchAny } from '../../ui/chrome';
+import { ExportField, GroupField, SortField, SortState } from '../../ui/listModel';
 
 export interface AddonView {
   key: string;
@@ -136,3 +137,53 @@ export function tallyAddons(views: AddonView[]) {
     unlisted: views.filter(v => v.installed && !v.catalog).length,
   };
 }
+
+/* ------------------------------------------------- sort, group and export */
+
+/** The three states an addon can be in here, as the list names them. */
+export type AddonStatus = 'Update available' | 'Installed' | 'Not installed';
+
+/** What needs doing first: an update, then what is installed, then the rest. */
+export const STATUS_ORDER: AddonStatus[] = ['Update available', 'Installed', 'Not installed'];
+
+export function statusOf(view: AddonView): AddonStatus {
+  if (view.updateAvailable) {
+    return 'Update available';
+  }
+  return view.installed ? 'Installed' : 'Not installed';
+}
+
+export const SORT_FIELDS: SortField<AddonView>[] = [
+  { key: 'name', label: 'Name', value: v => v.name },
+  { key: 'state', label: 'State (updates first)', value: v => STATUS_ORDER.indexOf(statusOf(v)) },
+  { key: 'installed', label: 'Installed version', value: v => v.installed?.version ?? null },
+  { key: 'latest', label: 'Latest version', value: v => v.latest },
+  { key: 'registry', label: 'Registry', value: v => v.registry },
+  { key: 'tags', label: 'Tags', value: v => v.tags.length, firstDir: 'desc' },
+  { key: 'requires', label: 'Requires', value: v => v.requires ?? null },
+];
+
+/** Name order, which is the order the catalog has always been in. */
+export const DEFAULT_SORT: SortState = { key: 'name', dir: 'asc' };
+
+export const GROUP_FIELDS: GroupField<AddonView>[] = [
+  { key: 'state', label: 'State', value: statusOf, order: STATUS_ORDER },
+  {
+    key: 'registry',
+    label: 'Registry',
+    value: v => v.registry ?? 'Not in a catalog',
+  },
+  { key: 'tag', label: 'First tag', value: v => v.tags[0] ?? 'Untagged' },
+];
+
+export const EXPORT_FIELDS: ExportField<AddonView>[] = [
+  { label: 'name', value: v => v.name },
+  { label: 'state', value: statusOf },
+  { label: 'installed version', value: v => v.installed?.version ?? null },
+  { label: 'latest version', value: v => v.latest },
+  { label: 'registry', value: v => v.registry },
+  { label: 'tags', value: v => v.tags.join(' ') },
+  { label: 'requires', value: v => v.requires ?? null },
+  { label: 'description', value: v => v.description ?? null },
+  { label: 'home', value: v => v.home ?? null },
+];

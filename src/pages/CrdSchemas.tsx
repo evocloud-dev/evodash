@@ -28,10 +28,20 @@ import {
   SidePanel,
   usePalette,
   useSidePanelViable,
-  ViewToggle,
 } from '../ui/chrome';
+import { ListToolbar, useListView } from '../ui/listView';
 import CrdSchemaDetail from './CrdSchemaDetail';
-import { buildSchemaViews, groupSchemas, groupsOf, ScopeFilter } from './crdSchemas/model';
+import {
+  buildSchemaViews,
+  DEFAULT_SORT,
+  EXPORT_FIELDS,
+  GROUP_FIELDS,
+  groupsOf,
+  matchesFilters,
+  orderSchemas,
+  ScopeFilter,
+  SORT_FIELDS,
+} from './crdSchemas/model';
 import { schemaURL } from './crdSchemas/routes';
 import { SchemaCard } from './crdSchemas/SchemaCard';
 import { SchemaTable } from './crdSchemas/SchemaTable';
@@ -51,6 +61,8 @@ const ScopeIcon = ({ stroke }: { stroke: string }) => (
   </svg>
 );
 
+const SORTABLE = SORT_FIELDS.map(f => f.key);
+
 export interface CrdSchemasProps {
   view?: 'grid' | 'list';
 }
@@ -59,7 +71,6 @@ export default function CrdSchemas({ view: viewProp = 'grid' }: CrdSchemasProps)
   const C = usePalette();
 
   const [q, setQ] = React.useState('');
-  const [view, setView] = React.useState<'grid' | 'list'>(viewProp);
   const [groupFilter, setGroupFilter] = React.useState('all');
   const [scopeFilter, setScopeFilter] = React.useState<ScopeFilter>('all');
   const [closed, setClosed] = React.useState<Record<string, boolean>>({});
@@ -90,10 +101,34 @@ export default function CrdSchemas({ view: viewProp = 'grid' }: CrdSchemasProps)
 
   const groupNames = React.useMemo(() => groupsOf(schemas), [schemas]);
 
-  const filters = { query: q.trim().toLowerCase(), group: groupFilter, scope: scopeFilter };
-  const groups = groupSchemas(schemas, filters);
-  const shown = groups.reduce((n, g) => n + g.schemas.length, 0);
-  const filtering = !!filters.query || groupFilter !== 'all' || scopeFilter !== 'all';
+  // Kind, then the version ladder: the order today's list has always had, and
+  // the tie-break for whatever the reader sorts by.
+  const ordered = React.useMemo(() => orderSchemas(schemas), [schemas]);
+  const query = q.trim().toLowerCase();
+  const shownSchemas = React.useMemo(
+    () => ordered.filter(s => matchesFilters(s, { query, group: groupFilter, scope: scopeFilter })),
+    [ordered, query, groupFilter, scopeFilter]
+  );
+  const shown = shownSchemas.length;
+  const filtering = !!query || groupFilter !== 'all' || scopeFilter !== 'all';
+  const clearFilters = () => {
+    setQ('');
+    setGroupFilter('all');
+    setScopeFilter('all');
+  };
+
+  const list = useListView({
+    id: 'crd-schemas',
+    rows: shownSchemas,
+    sortFields: SORT_FIELDS,
+    groupFields: GROUP_FIELDS,
+    defaultSort: DEFAULT_SORT,
+    defaultView: viewProp,
+    // Grouped under API group headings, as the page has always opened.
+    defaultGroup: 'group',
+  });
+  const view = list.view;
+  const groupedByApiGroup = list.group === 'group';
 
   const error = queryError(crdQuery);
 
@@ -122,70 +157,95 @@ export default function CrdSchemas({ view: viewProp = 'grid' }: CrdSchemasProps)
     );
   } else if (schemas.length === 0) {
     body = <Notice C={C} title="No custom resource definitions on this cluster" />;
-  } else if (groups.length === 0) {
-    body = (
-      <Notice
+  } else {
+    const toolbar = (
+      <ListToolbar
         C={C}
-        title={filters.query ? `No schemas match “${q}”` : 'No schemas in this selection'}
+        list={list}
+        shown={shown}
+        total={schemas.length}
+        noun="schemas"
+        onClearFilters={filtering ? clearFilters : undefined}
+        sortFields={SORT_FIELDS}
+        groupFields={GROUP_FIELDS}
+        exportFields={EXPORT_FIELDS}
+        exportName="CRD schemas"
       />
     );
-  } else {
-    body = groups.map(g => {
-      const open = !closed[g.name];
-      return (
-        <section key={g.name} style={{ marginBottom: '26px' }}>
-          <SectionHeading
+    const groups = shown === 0 ? [] : list.groups.map(g => ({ name: g.name, schemas: g.rows }));
+    body = (
+      <>
+        {toolbar}
+        {groups.length === 0 && (
+          <Notice
             C={C}
-            label={g.name}
-            count={g.schemas.length}
-            open={open}
-            onToggle={() => setClosed(s => ({ ...s, [g.name]: !s[g.name] }))}
+            title={query ? `No schemas match “${q}”` : 'No schemas in this selection'}
           />
-          {open &&
-            (view === 'grid' ? (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(268px, 1fr))',
-                  gap: '12px',
-                }}
-              >
-                {g.schemas.map(schema => (
-                  <SchemaCard
-                    key={schema.key}
+        )}
+        {groups.map(g => {
+          const open = !closed[g.name];
+          return (
+            <section key={g.name || 'all'} style={{ marginBottom: '26px' }}>
+              {list.grouped && (
+                <SectionHeading
+                  C={C}
+                  label={g.name}
+                  count={g.schemas.length}
+                  open={open}
+                  onToggle={() => setClosed(s => ({ ...s, [g.name]: !s[g.name] }))}
+                />
+              )}
+              {open &&
+                (view === 'grid' ? (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(268px, 1fr))',
+                      gap: '12px',
+                    }}
+                  >
+                    {g.schemas.map(schema => (
+                      <SchemaCard
+                        key={schema.key}
+                        C={C}
+                        schema={schema}
+                        href={schemaURL(schema.crdName, schema.version)}
+                        onOpen={
+                          panelViable
+                            ? () =>
+                                setSelected({
+                                  crdName: schema.crdName,
+                                  version: schema.version,
+                                  kind: schema.kind,
+                                })
+                            : undefined
+                        }
+                        expanded={!!expanded[schema.key]}
+                        onToggle={() => setExpanded(s => ({ ...s, [schema.key]: !s[schema.key] }))}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <SchemaTable
                     C={C}
-                    schema={schema}
-                    href={schemaURL(schema.crdName, schema.version)}
+                    schemas={g.schemas}
+                    href={s => schemaURL(s.crdName, s.version)}
                     onOpen={
                       panelViable
-                        ? () =>
-                            setSelected({
-                              crdName: schema.crdName,
-                              version: schema.version,
-                              kind: schema.kind,
-                            })
+                        ? s => setSelected({ crdName: s.crdName, version: s.version, kind: s.kind })
                         : undefined
                     }
-                    expanded={!!expanded[schema.key]}
-                    onToggle={() => setExpanded(s => ({ ...s, [schema.key]: !s[schema.key] }))}
+                    showGroup={!groupedByApiGroup}
+                    sort={list.sort}
+                    onSort={list.sortBy}
+                    sortable={SORTABLE}
                   />
                 ))}
-              </div>
-            ) : (
-              <SchemaTable
-                C={C}
-                schemas={g.schemas}
-                href={s => schemaURL(s.crdName, s.version)}
-                onOpen={
-                  panelViable
-                    ? s => setSelected({ crdName: s.crdName, version: s.version, kind: s.kind })
-                    : undefined
-                }
-              />
-            ))}
-        </section>
-      );
-    });
+            </section>
+          );
+        })}
+      </>
+    );
   }
 
   return (
@@ -226,7 +286,6 @@ export default function CrdSchemas({ view: viewProp = 'grid' }: CrdSchemasProps)
               { value: 'cluster', label: 'Cluster' },
             ]}
           />
-          <ViewToggle C={C} value={view} onChange={setView} />
         </>
       }
     >
