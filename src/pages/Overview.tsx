@@ -533,7 +533,7 @@ export default function Overview() {
       route: COMPLIANCE_ROUTE,
       // Qualified here, as the KubeVela cards are, because the sidebar's
       // Compliance heading is not above it.
-      title: 'Compliance Frameworks',
+      title: 'Security Benchmark',
       blurb:
         'How the cluster scores against NSA, MITRE, CIS, SOC 2 and ArmoBest, from Kubescape scans.',
       count: frameworkScores.length ? frameworkScores.length : null,

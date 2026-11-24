@@ -1,5 +1,5 @@
 /**
- * Compliance Frameworks — how the cluster scores against the security
+ * Security Benchmark — how the cluster scores against the security
  * frameworks Kubescape checks it with.
  *
  * Kubescape's operator does the scanning: it checks every resource against its
@@ -771,7 +771,7 @@ export default function Compliance() {
   }
 
   return (
-    <EvoPage section="Compliance" title="Frameworks" summary={summary} actions={actions}>
+    <EvoPage section="Compliance" title="Security Benchmark" summary={summary} actions={actions}>
       {body}
 
       <SidePanel

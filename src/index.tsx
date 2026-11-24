@@ -183,7 +183,7 @@ registerRoute({
 // already puts a "Kubescape" entry in the sidebar, and a second one here would
 // read as a duplicate of it.
 //
-// Frameworks keeps the address the single Compliance page had, so links to it
+// Security Benchmark keeps the address the single Compliance page had, so links to it
 // still land where they did.
 registerSidebarEntry({
   parent: 'evocloud',
@@ -192,11 +192,11 @@ registerSidebarEntry({
   url: '/evocloud/compliance',
 });
 
-// 6a. Frameworks — Kubescape's scores against NSA, MITRE, CIS, SOC 2 and ArmoBest
+// 6a. Security Benchmark — Kubescape's scores against NSA, MITRE, CIS, SOC 2 and ArmoBest
 registerSidebarEntry({
   parent: 'evocloud-compliance',
   name: 'evocloud-compliance-frameworks',
-  label: 'Frameworks',
+  label: 'Security Benchmark',
   url: '/evocloud/compliance',
 });
 
