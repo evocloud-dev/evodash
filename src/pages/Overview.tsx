@@ -58,7 +58,7 @@ import {
 } from './compliance/useScanResults';
 import { buildSchemaViews, groupsOf as schemaGroupsOf } from './crdSchemas/model';
 import { CRD_SCHEMAS_ROUTE } from './crdSchemas/routes';
-import { BarChart, Slice, StackedBar } from './overview/Charts';
+import { BarChart, Slice, SourceRow, SourceTable, StackedBar } from './overview/Charts';
 
 // Via the namespace, not `lib/lib/router` — see the note in ui/chrome.tsx.
 const { createRouteURL } = Router;
@@ -294,20 +294,37 @@ export default function Overview() {
   }, [schemas]);
 
   // Fixed order, so a source dropping to zero never repaints the others.
-  const bySource: Slice[] = React.useMemo(
-    () => [
-      { label: 'Resource', value: apps.filter(a => a.source === 'Resource').length },
-      { label: 'Ingress', value: apps.filter(a => a.source === 'Ingress').length },
-      { label: 'HTTPRoute', value: apps.filter(a => a.source === 'HTTPRoute').length },
-    ],
+  const sourceRows: SourceRow[] = React.useMemo(() => {
+    const rowOf = (label: string, list: typeof apps): SourceRow => ({
+      label,
+      apps: list.length,
+      reachable: list.filter(a => a.link.url).length,
+      restricted: list.filter(a => a.restricted).length,
+    });
+    return (['Resource', 'Ingress', 'HTTPRoute'] as const).map(source =>
+      rowOf(
+        source,
+        apps.filter(a => a.source === source)
+      )
+    );
+  }, [apps]);
+  const sourceTotal: SourceRow = React.useMemo(
+    () => ({
+      label: 'Total',
+      apps: apps.length,
+      reachable: apps.filter(a => a.link.url).length,
+      restricted: apps.filter(a => a.restricted).length,
+    }),
     [apps]
   );
+  const bySource: Slice[] = sourceRows.map(r => ({ label: r.label, value: r.apps }));
 
   // One filled segment is a stat tile with extra ink, and one bar is not a bar
   // chart — below two categories each figure is dropped rather than drawn.
   const sourcesUsed = bySource.filter(s => s.value > 0).length;
 
   const appGroups = appGroupsOf(apps).length;
+  const appNamespaces = new Set(apps.map(a => a.ns)).size;
   const apiGroups = schemaGroupsOf(schemas).length;
 
   // Every list 404ing is a cluster with nowhere for apps to come from, which is
@@ -589,13 +606,20 @@ export default function Overview() {
               gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
               gap: '12px',
               marginBottom: '26px',
-              alignItems: 'start',
             }}
           >
             {sourcesUsed > 1 && (
               <Panel C={C} caption="Applications by source">
                 <div style={{ padding: '16px 16px 14px' }}>
-                  <StackedBar C={C} slices={bySource} unit="application" />
+                  <StackedBar C={C} slices={bySource} unit="application" legend={false} />
+                  <SourceTable
+                    C={C}
+                    rows={sourceRows}
+                    total={sourceTotal}
+                    note={`Across ${appNamespaces} namespace${
+                      appNamespaces === 1 ? '' : 's'
+                    }, filed in ${appGroups} group${appGroups === 1 ? '' : 's'}`}
+                  />
                 </div>
               </Panel>
             )}
