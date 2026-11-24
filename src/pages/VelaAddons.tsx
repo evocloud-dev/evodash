@@ -42,9 +42,21 @@ import {
   usePalette,
   useSidePanelViable,
 } from '../ui/chrome';
+import { ListToolbar, useListView } from '../ui/listView';
 import { AddonCard } from './velaAddons/AddonCard';
 import { AddonDetail } from './velaAddons/AddonDetail';
-import { AddonState, buildAddonViews, matchesAddon, tagsOf, tallyAddons } from './velaAddons/model';
+import { AddonTable } from './velaAddons/AddonTable';
+import {
+  AddonState,
+  buildAddonViews,
+  DEFAULT_SORT,
+  EXPORT_FIELDS,
+  GROUP_FIELDS,
+  matchesAddon,
+  SORT_FIELDS,
+  tagsOf,
+  tallyAddons,
+} from './velaAddons/model';
 import { useCatalog } from './velaAddons/useCatalog';
 
 export default function VelaAddons() {
@@ -99,9 +111,25 @@ export default function VelaAddons() {
   const counts = tallyAddons(addons);
   const tags = tagsOf(addons);
 
-  const filter = { query: q, tag: tagFilter, state: stateFilter };
-  const shown = addons.filter(a => matchesAddon(a, filter));
+  const shown = React.useMemo(
+    () => addons.filter(a => matchesAddon(a, { query: q, tag: tagFilter, state: stateFilter })),
+    [addons, q, tagFilter, stateFilter]
+  );
   const filtering = !!q.trim() || tagFilter !== 'all' || stateFilter !== 'all';
+  const clearFilters = () => {
+    setQ('');
+    setTagFilter('all');
+    setStateFilter('all');
+  };
+
+  const list = useListView({
+    id: 'vela-addons',
+    rows: shown,
+    sortFields: SORT_FIELDS,
+    groupFields: GROUP_FIELDS,
+    defaultSort: DEFAULT_SORT,
+  });
+  const [closed, setClosed] = React.useState<Record<string, boolean>>({});
 
   const selected = selectedKey ? addons.find(a => a.key === selectedKey) ?? null : null;
 
@@ -280,7 +308,18 @@ export default function VelaAddons() {
         />
 
         <section style={{ marginTop: '26px' }}>
-          <SectionHeading C={C} label="Catalog" count={shown.length} />
+          <ListToolbar
+            C={C}
+            list={list}
+            shown={shown.length}
+            total={addons.length}
+            noun="addons"
+            onClearFilters={filtering ? clearFilters : undefined}
+            sortFields={SORT_FIELDS}
+            groupFields={GROUP_FIELDS}
+            exportFields={EXPORT_FIELDS}
+            exportName="KubeVela addons"
+          />
           {shown.length === 0 ? (
             <div
               style={{
@@ -296,22 +335,49 @@ export default function VelaAddons() {
               No addons match the current filters.
             </div>
           ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(268px, 1fr))',
-                gap: '12px',
-              }}
-            >
-              {shown.map(addon => (
-                <AddonCard
-                  key={addon.key}
-                  C={C}
-                  addon={addon}
-                  onOpen={panelViable ? () => setSelectedKey(addon.key) : undefined}
-                />
-              ))}
-            </div>
+            list.groups.map(group => {
+              const open = !closed[group.name];
+              return (
+                <section key={group.name} style={{ marginBottom: list.grouped ? '22px' : 0 }}>
+                  {list.grouped && (
+                    <SectionHeading
+                      C={C}
+                      label={group.name}
+                      count={group.rows.length}
+                      open={open}
+                      onToggle={() => setClosed(s => ({ ...s, [group.name]: !s[group.name] }))}
+                    />
+                  )}
+                  {open &&
+                    (list.view === 'grid' ? (
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(268px, 1fr))',
+                          gap: '12px',
+                        }}
+                      >
+                        {group.rows.map(addon => (
+                          <AddonCard
+                            key={addon.key}
+                            C={C}
+                            addon={addon}
+                            onOpen={panelViable ? () => setSelectedKey(addon.key) : undefined}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <AddonTable
+                        C={C}
+                        addons={group.rows}
+                        onOpen={panelViable ? a => setSelectedKey(a.key) : undefined}
+                        sort={list.sort}
+                        onSort={list.sortBy}
+                      />
+                    ))}
+                </section>
+              );
+            })
           )}
         </section>
       </>
@@ -319,7 +385,7 @@ export default function VelaAddons() {
   }
 
   return (
-    <EvoPage section="KubeVela" title="Addons" summary={summary} actions={actions}>
+    <EvoPage section="App Delivery" title="Addons" summary={summary} actions={actions}>
       {body}
 
       <SidePanel

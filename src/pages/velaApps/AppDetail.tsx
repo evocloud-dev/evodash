@@ -12,12 +12,15 @@
  * description the definition gave each field. That fetch is the only one the
  * panel makes; everything else is already on the {@link AppView} the list built.
  */
+import { Router } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import { readyTone } from '../../k8s/conditions';
 import {
   ApplicationComponent,
   ApplicationPolicy,
   ApplicationTrait,
+  AppliedResource,
   DefinitionScope,
   serviceHealthy,
   ServiceStatus,
@@ -29,6 +32,33 @@ import { EvoCloudPalette } from '../../palette';
 import { age, Chip, CLIP, Dot, MONO, Mono, Pill } from '../../ui/chrome';
 import { AppView, describeValue, settingsOf } from './model';
 import { useParameterDocs } from './useParameterDocs';
+
+// Via the namespace, not `lib/lib/router` — see the note in ui/chrome.tsx.
+const { createRouteURL } = Router;
+
+/**
+ * Headlamp's own page for an applied resource, or '' when there is none.
+ *
+ * Headlamp names each details route after the kind ("Deployment", "Service"),
+ * so a kind it has no page for — most custom resources — gets no link. A
+ * resource applied to another cluster gets none either: Headlamp's routes are
+ * for the cluster being looked at.
+ */
+function appliedHref(resource: AppliedResource): string {
+  if (!resource.kind || !resource.name || (resource.cluster && resource.cluster !== 'local')) {
+    return '';
+  }
+  try {
+    return (
+      createRouteURL(resource.kind, {
+        namespace: resource.namespace || undefined,
+        name: resource.name,
+      }) || ''
+    );
+  } catch {
+    return '';
+  }
+}
 
 function Heading({ C, children }: { C: EvoCloudPalette; children: React.ReactNode }) {
   return (
@@ -526,31 +556,47 @@ export function AppDetail({ C, app }: { C: EvoCloudPalette; app: AppView }) {
         <>
           <Heading C={C}>Applied resources</Heading>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {app.applied.map((resource, i) => (
-              <div
-                key={`${resource.kind}/${resource.namespace ?? ''}/${resource.name}/${i}`}
-                style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}
-              >
-                <Pill
-                  fg={C.accent}
-                  bg={C.accentSoft}
-                  border={C.accentBorder}
-                  title={resource.apiVersion}
+            {app.applied.map((resource, i) => {
+              const href = appliedHref(resource);
+              return (
+                <div
+                  key={`${resource.kind}/${resource.namespace ?? ''}/${resource.name}/${i}`}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}
                 >
-                  {resource.kind ?? '?'}
-                </Pill>
-                <span style={{ ...CLIP, fontSize: '12.5px', minWidth: 0 }} title={resource.name}>
-                  {resource.name}
-                </span>
-                <span style={{ flex: 1 }} />
-                {resource.namespace && <Chip C={C}>{resource.namespace}</Chip>}
-                {resource.cluster && (
-                  <Chip C={C} title="Applied to a managed cluster">
-                    {resource.cluster}
-                  </Chip>
-                )}
-              </div>
-            ))}
+                  <Pill
+                    fg={C.accent}
+                    bg={C.accentSoft}
+                    border={C.accentBorder}
+                    title={resource.apiVersion}
+                  >
+                    {resource.kind ?? '?'}
+                  </Pill>
+                  {href ? (
+                    <RouterLink
+                      to={href}
+                      title={`Open ${resource.kind} ${resource.name} in Headlamp`}
+                      style={{ ...CLIP, fontSize: '12.5px', minWidth: 0, color: C.link }}
+                    >
+                      {resource.name}
+                    </RouterLink>
+                  ) : (
+                    <span
+                      style={{ ...CLIP, fontSize: '12.5px', minWidth: 0 }}
+                      title={resource.name}
+                    >
+                      {resource.name}
+                    </span>
+                  )}
+                  <span style={{ flex: 1 }} />
+                  {resource.namespace && <Chip C={C}>{resource.namespace}</Chip>}
+                  {resource.cluster && (
+                    <Chip C={C} title="Applied to a managed cluster">
+                      {resource.cluster}
+                    </Chip>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </>
       )}

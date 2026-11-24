@@ -15,7 +15,8 @@ import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { ResourceFailures } from '../../k8s/kyverno';
 import { EvoCloudPalette } from '../../palette';
-import { Chip, CLIP, MONO, Notice, NUMERIC, Pill } from '../../ui/chrome';
+import { Chip, CLIP, MONO, Notice, NUMERIC, openOnClick, Pill, SortHeader } from '../../ui/chrome';
+import { SortState } from '../../ui/listModel';
 import { resourceHref, severityTone, SystemMark } from './shared';
 
 const COLUMNS = 'minmax(240px, 1.4fr) minmax(170px, 1fr) 96px 110px 28px';
@@ -25,29 +26,37 @@ function ResourceRow({
   entry,
   open,
   onToggle,
+  onOpen,
 }: {
   C: EvoCloudPalette;
   entry: ResourceFailures;
   open: boolean;
   onToggle: () => void;
+  /** Given, a click opens the side panel instead of expanding the row. */
+  onOpen?: () => void;
 }) {
   const { resource, system, policies } = entry;
   const severity = severityTone(C, entry.severity);
   const href = resourceHref(resource);
+  const expanded = open && !onOpen;
 
   return (
     <div style={{ borderTop: `1px solid ${C.divider}` }}>
       <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        onClick={onToggle}
-        onKeyDown={e => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onToggle();
-          }
-        }}
+        {...(onOpen
+          ? openOnClick(onOpen, `${resource.kind} ${resource.name}`)
+          : {
+              role: 'button' as const,
+              tabIndex: 0,
+              'aria-expanded': open,
+              onClick: onToggle,
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onToggle();
+                }
+              },
+            })}
         className="evo-row"
         style={{
           display: 'grid',
@@ -95,11 +104,11 @@ function ResourceRow({
           {policies.length} {policies.length === 1 ? 'policy' : 'policies'}
         </span>
         <span style={{ color: C.textDim, fontSize: '11px', textAlign: 'center' }}>
-          {open ? '▾' : '▸'}
+          {onOpen ? '' : open ? '▾' : '▸'}
         </span>
       </div>
 
-      {open && (
+      {expanded && (
         <div
           style={{
             display: 'flex',
@@ -150,13 +159,36 @@ export function ResourceTable({
   C,
   offenders,
   empty,
+  sort,
+  onSort,
+  onOpen,
 }: {
   C: EvoCloudPalette;
   offenders: ResourceFailures[];
+  /** Given, clicking a resource opens it in the side panel instead of expanding it. */
+  onOpen?: (entry: ResourceFailures) => void;
   /** What to say when the filter leaves nothing. */
   empty: { title: string; body: string };
+  /** The list's current order, to mark its column. */
+  sort?: SortState;
+  /** Given, the headers sort the list when clicked. See policyFields.ts for the keys. */
+  onSort?: (key: string) => void;
 }) {
   const [openKey, setOpenKey] = React.useState<string | null>(null);
+
+  const head = (key: string, label: string, title?: string) =>
+    onSort ? (
+      <SortHeader
+        C={C}
+        label={label}
+        title={title}
+        active={sort?.key === key}
+        dir={sort?.dir ?? 'asc'}
+        onClick={() => onSort(key)}
+      />
+    ) : (
+      <span title={title}>{label}</span>
+    );
 
   if (offenders.length === 0) {
     return (
@@ -189,10 +221,10 @@ export function ResourceTable({
           color: C.textFaint,
         }}
       >
-        <span>Resource</span>
-        <span>Namespace</span>
-        <span title="The worst severity among the policies it fails">Severity</span>
-        <span>Fails</span>
+        {head('name', 'Resource')}
+        {head('namespace', 'Namespace')}
+        {head('severity', 'Severity', 'The worst severity among the policies it fails')}
+        {head('policies', 'Fails')}
         <span />
       </div>
       {offenders.map(entry => (
@@ -202,6 +234,7 @@ export function ResourceTable({
           entry={entry}
           open={openKey === entry.resource.key}
           onToggle={() => setOpenKey(k => (k === entry.resource.key ? null : entry.resource.key))}
+          onOpen={onOpen ? () => onOpen(entry) : undefined}
         />
       ))}
     </div>

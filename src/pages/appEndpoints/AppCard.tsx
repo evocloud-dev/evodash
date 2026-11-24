@@ -15,12 +15,21 @@ import {
   MONO,
   NUMERIC,
   OpenButton,
+  openOnClick,
   RemoteIcon,
 } from '../../ui/chrome';
 import { accessNote, AppView, linkTone, metaTone } from './model';
 
 const LockIcon = () => (
-  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinejoin="round">
+  <svg
+    width="9"
+    height="9"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.4"
+    strokeLinejoin="round"
+  >
     <rect x="4" y="10.5" width="16" height="10.5" rx="2" />
     <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
   </svg>
@@ -39,7 +48,10 @@ export function AppCard({
   dense: boolean;
   expanded: boolean;
   onToggle: () => void;
-  /** Given, the header opens the side panel. Absent, the card only expands. */
+  /**
+   * Given, the whole card opens the side panel; the URL, expand, copy and open
+   * controls keep their own actions. Absent, the card only expands.
+   */
   onOpen?: () => void;
 }) {
   const url = app.link.url;
@@ -47,7 +59,9 @@ export function AppCard({
   return (
     <div
       className="evo-card"
+      {...(onOpen ? openOnClick(onOpen, app.name) : {})}
       style={{
+        cursor: onOpen ? 'pointer' : undefined,
         background: C.surface,
         border: `1px solid ${C.border}`,
         borderRadius: '10px',
@@ -56,32 +70,19 @@ export function AppCard({
       }}
     >
       <div
-        {...(onOpen
-          ? {
-              role: 'button' as const,
-              tabIndex: 0,
-              onClick: onOpen,
-              onKeyDown: (e: React.KeyboardEvent) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onOpen();
-                }
-              },
-              title: `Open ${app.name}`,
-            }
-          : {})}
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: '12px',
           padding: dense ? '10px 12px' : '14px 14px 13px',
-          cursor: onOpen ? 'pointer' : undefined,
         }}
       >
         <RemoteIcon C={C} src={app.icon} name={app.name} size={38} />
         <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-            <span style={{ ...CLIP, fontSize: '14.5px', fontWeight: 600, letterSpacing: '-0.005em' }}>
+            <span
+              style={{ ...CLIP, fontSize: '14.5px', fontWeight: 600, letterSpacing: '-0.005em' }}
+            >
               {app.name}
             </span>
             <span
@@ -115,11 +116,19 @@ export function AppCard({
             )}
           </div>
           {url ? (
-            <a href={url} target="_blank" rel="noopener noreferrer" style={{ ...CLIP, fontSize: '12px', fontFamily: MONO, color: C.link }}>
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ ...CLIP, fontSize: '12px', fontFamily: MONO, color: C.link }}
+            >
               {url.replace(/^https?:\/\//, '')}
             </a>
           ) : (
-            <span title={app.link.note} style={{ ...CLIP, fontSize: '12px', fontFamily: MONO, color: C.textDimmer }}>
+            <span
+              title={app.link.note}
+              style={{ ...CLIP, fontSize: '12px', fontFamily: MONO, color: C.textDimmer }}
+            >
               {LINK_LABEL[app.link.state]}
             </span>
           )}
@@ -171,7 +180,9 @@ export function AppCard({
             }}
           >
             {/* Right-aligned floor so the caret does not shift as counts grow. */}
-            <span style={{ ...NUMERIC, minWidth: '13px', textAlign: 'right' }}>{app.meta.length}</span>
+            <span style={{ ...NUMERIC, minWidth: '13px', textAlign: 'right' }}>
+              {app.meta.length}
+            </span>
             <ChevronIcon open={expanded} />
           </button>
           {url && (
@@ -184,7 +195,13 @@ export function AppCard({
       </div>
 
       {expanded && (
-        <div style={{ borderTop: `1px solid ${C.divider}`, background: C.surfaceDeep, padding: '11px 12px 12px' }}>
+        <div
+          style={{
+            borderTop: `1px solid ${C.divider}`,
+            background: C.surfaceDeep,
+            padding: '11px 12px 12px',
+          }}
+        >
           <div
             style={{
               fontSize: '9.5px',
@@ -197,12 +214,26 @@ export function AppCard({
           >
             Properties
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '5px 14px', alignItems: 'baseline' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'auto 1fr',
+              gap: '5px 14px',
+              alignItems: 'baseline',
+            }}
+          >
             {app.meta.map(row => {
               const tone = metaTone(C, row, app);
               return (
                 <React.Fragment key={row.k}>
-                  <span style={{ fontSize: '11px', fontFamily: MONO, color: C.textDim, whiteSpace: 'nowrap' }}>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontFamily: MONO,
+                      color: C.textDim,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {row.k}
                   </span>
                   <span
@@ -221,7 +252,15 @@ export function AppCard({
               );
             })}
           </div>
-          <div style={{ marginTop: '9px', paddingTop: '9px', borderTop: `1px dashed ${C.divider}`, fontSize: '11px', color: C.textDimmer }}>
+          <div
+            style={{
+              marginTop: '9px',
+              paddingTop: '9px',
+              borderTop: `1px dashed ${C.divider}`,
+              fontSize: '11px',
+              color: C.textDimmer,
+            }}
+          >
             {accessNote(app)}
           </div>
         </div>

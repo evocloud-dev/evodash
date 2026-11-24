@@ -32,17 +32,39 @@ import {
   EvoPage,
   FilterSelect,
   FolderIcon,
-  GhostButton,
   LiveBadge,
   Notice,
+  SearchBox,
   SectionHeading,
+  SidePanel,
   Stat,
   StatGrid,
   usePalette,
+  useSidePanelViable,
 } from '../ui/chrome';
+import { ListToolbar, ListView, useListView } from '../ui/listView';
 import { EngineStrip } from './compliance/EngineStrip';
 import { NamespacePanel } from './compliance/NamespacePanel';
-import { PolicyTable, sortPolicies } from './compliance/PolicyTable';
+import { PolicyCard } from './compliance/PolicyCard';
+import { PolicyDetail } from './compliance/PolicyDetail';
+import {
+  matchesPolicy,
+  matchesResource,
+  POLICY_DEFAULT_SORT,
+  POLICY_EXPORT_FIELDS,
+  POLICY_GROUP_FIELDS,
+  POLICY_SORT_FIELDS,
+  policyMode,
+  policyStatus,
+  RESOURCE_DEFAULT_SORT,
+  RESOURCE_EXPORT_FIELDS,
+  RESOURCE_GROUP_FIELDS,
+  RESOURCE_SORT_FIELDS,
+  sortPolicies,
+} from './compliance/policyFields';
+import { PolicyTable } from './compliance/PolicyTable';
+import { ResourceCard } from './compliance/ResourceCard';
+import { ResourceDetail } from './compliance/ResourceDetail';
 import { ResourceTable } from './compliance/ResourceTable';
 import { InstallStep, InstallSteps, Segmented } from './compliance/shared';
 import { useKyverno } from './compliance/useKyverno';
@@ -65,6 +87,9 @@ const INSTALL_POLICIES: InstallStep = {
 };
 
 type View = 'policy' | 'resource';
+
+/** What the side panel shows: a policy or a failing resource, by key. */
+type PanelTarget = { type: 'policy'; key: string } | { type: 'resource'; key: string } | null;
 
 /** The by-resource filter: everything, one side of the split, or one namespace. */
 type Scope = 'all' | 'workloads' | 'system' | `ns:${string}`;
@@ -96,6 +121,52 @@ function Note({ C, children }: { C: EvoCloudPalette; children: React.ReactNode }
   );
 }
 
+const CARD_GRID: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+  gap: '12px',
+};
+
+const STATUS_LABEL = { failing: 'Failing', passing: 'Passing', unevaluated: 'Not evaluated' };
+
+/**
+ * A list's rows under their group headings, or as one block when grouping is
+ * off. Each group draws itself with `render`, as cards or as a table.
+ */
+function Grouped<R>({
+  C,
+  list,
+  render,
+}: {
+  C: EvoCloudPalette;
+  list: ListView<R>;
+  render: (rows: R[]) => React.ReactNode;
+}) {
+  const [closed, setClosed] = React.useState<Record<string, boolean>>({});
+  if (!list.grouped) {
+    return <>{render(list.sorted)}</>;
+  }
+  return (
+    <>
+      {list.groups.map(group => {
+        const open = !closed[group.name];
+        return (
+          <section key={group.name} style={{ marginBottom: '22px' }}>
+            <SectionHeading
+              C={C}
+              label={group.name}
+              count={group.rows.length}
+              open={open}
+              onToggle={() => setClosed(c => ({ ...c, [group.name]: !c[group.name] }))}
+            />
+            {open && render(group.rows)}
+          </section>
+        );
+      })}
+    </>
+  );
+}
+
 export default function CompliancePolicies() {
   const C = usePalette();
   const kyverno = useKyverno();
@@ -106,11 +177,40 @@ export default function CompliancePolicies() {
   const [view, setView] = React.useState<View>('policy');
   const [scope, setScope] = React.useState<Scope>('all');
   // Failing only by default, but every policy while nothing fails — an empty
-  // table says less than the list. Followed until the toggle is used: reports
+  // table says less than the list. Followed until the filter is used: reports
   // can land after the policies, and a default fixed on the first render would
   // be decided before there was anything failing to show.
-  const [failingChoice, setFailingChoice] = React.useState<boolean | null>(null);
+  const [statusChoice, setStatusChoice] = React.useState<string | null>(null);
+  const [modeFilter, setModeFilter] = React.useState('all');
+  const [policyQuery, setPolicyQuery] = React.useState('');
+  const [resourceQuery, setResourceQuery] = React.useState('');
+  const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const resultsRef = React.useRef<HTMLDivElement>(null);
+  /**
+   * The item in the side panel, by key rather than by value, so the panel
+   * re-reads the live posture on every render: results that move while it is
+   * open update in place, and an item that disappears closes it.
+   */
+  const [panel, setPanel] = React.useState<PanelTarget>(null);
+  const panelViable = useSidePanelViable();
+  const closePanel = React.useCallback(() => setPanel(null), []);
+  const openPolicy = panelViable
+    ? (policy: { key: string }) => setPanel({ type: 'policy', key: policy.key })
+    : undefined;
+  const openResource = panelViable
+    ? (entry: { resource: { key: string } }) =>
+        setPanel({ type: 'resource', key: entry.resource.key })
+    : undefined;
+  const panelPolicy =
+    panel?.type === 'policy' ? posture.policies.find(p => p.key === panel.key) ?? null : null;
+  const panelResource =
+    panel?.type === 'resource'
+      ? posture.offenders.find(o => o.resource.key === panel.key) ?? null
+      : null;
+  const policyByRef = (ref: string) => {
+    const policy = posture.policies.find(p => p.ref === ref);
+    return policy ? () => setPanel({ type: 'policy', key: policy.key }) : null;
+  };
 
   const declared = posture.policies.filter(p => p.kind);
   const enforcing = declared.filter(p => p.action === 'Enforce' || p.action === 'Mixed').length;
@@ -133,10 +233,40 @@ export default function CompliancePolicies() {
   const workloads = side(false);
   const system = side(true);
 
-  const failingOnly = failingChoice ?? posture.policies.some(p => p.failed > 0);
-  const sortedPolicies = sortPolicies(posture.policies);
-  const shownPolicies = failingOnly ? sortedPolicies.filter(p => p.failed > 0) : sortedPolicies;
-  const shownOffenders = posture.offenders.filter(o => inScope(o, scope));
+  const anyFailing = posture.policies.some(p => p.failed > 0);
+  const statusFilter = statusChoice ?? (anyFailing ? 'failing' : 'all');
+  // Through sortPolicies first, so "worst first" ties fall back to its order.
+  const shownPolicies = React.useMemo(
+    () =>
+      sortPolicies(posture.policies).filter(p =>
+        matchesPolicy(p, { query: policyQuery, status: statusFilter, mode: modeFilter })
+      ),
+    [posture.policies, policyQuery, statusFilter, modeFilter]
+  );
+  const shownOffenders = React.useMemo(
+    () => posture.offenders.filter(o => inScope(o, scope) && matchesResource(o, resourceQuery)),
+    [posture.offenders, scope, resourceQuery]
+  );
+
+  const policyList = useListView({
+    id: 'kyverno-policies',
+    rows: shownPolicies,
+    sortFields: POLICY_SORT_FIELDS,
+    groupFields: POLICY_GROUP_FIELDS,
+    defaultSort: POLICY_DEFAULT_SORT,
+    defaultView: 'list',
+  });
+  const resourceList = useListView({
+    id: 'kyverno-resources',
+    rows: shownOffenders,
+    sortFields: RESOURCE_SORT_FIELDS,
+    groupFields: RESOURCE_GROUP_FIELDS,
+    defaultSort: RESOURCE_DEFAULT_SORT,
+    defaultView: 'list',
+  });
+
+  const policyFiltering = !!policyQuery.trim() || statusFilter !== 'all' || modeFilter !== 'all';
+  const resourceFiltering = !!resourceQuery.trim() || scope !== 'all';
 
   const showNamespace = (namespace: string | null) => {
     setView('resource');
@@ -299,6 +429,10 @@ export default function CompliancePolicies() {
         value: `ns:${n.namespace ?? ''}`,
         label: `${n.namespace ?? 'cluster-scoped'} (${n.failing})`,
       }));
+    const modeOptions = ['Enforce', 'Mixed', 'Audit', 'Unset', 'Reported']
+      .map(mode => ({ mode, count: posture.policies.filter(p => policyMode(p) === mode).length }))
+      .filter(m => m.count > 0)
+      .map(m => ({ value: m.mode, label: `${m.mode} (${m.count})` }));
     const offenderCount = (filter: Scope) =>
       posture.offenders.filter(o => inScope(o, filter)).length;
 
@@ -306,7 +440,12 @@ export default function CompliancePolicies() {
       title: 'Nothing here fails a Kyverno policy',
       body: 'Every resource in this selection passed every policy that checked it.',
     };
-    if (scope === 'workloads' && posture.offenders.length > 0) {
+    if (resourceQuery.trim() && posture.offenders.length > 0) {
+      empty = {
+        title: 'No failing resource matches the search',
+        body: 'Search looks at the kind, name and namespace, and the titles of the policies it fails.',
+      };
+    } else if (scope === 'workloads' && posture.offenders.length > 0) {
       empty = {
         title: 'No workload fails a Kyverno policy',
         body: 'Every failing resource is in a system namespace. Choose System namespaces to see them.',
@@ -345,51 +484,199 @@ export default function CompliancePolicies() {
             label={view === 'policy' ? 'Kyverno policies' : 'Failing resources'}
             count={view === 'policy' ? shownPolicies.length : shownOffenders.length}
             right={
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {view === 'policy' ? (
-                  <GhostButton
-                    C={C}
-                    active={!failingOnly}
-                    onClick={() => setFailingChoice(!failingOnly)}
-                    title="Switch between failing policies and every policy"
-                  >
-                    {failingOnly ? `Show all ${posture.policies.length}` : 'Failing only'}
-                  </GhostButton>
-                ) : (
-                  <FilterSelect
-                    C={C}
-                    value={scope}
-                    onChange={v => setScope(v as Scope)}
-                    label="Filter failing resources by namespace"
-                    icon={<FolderIcon size={14} stroke={C.textDim} />}
-                    options={[
-                      { value: 'all', label: `All namespaces (${posture.offenders.length})` },
-                      {
-                        value: 'workloads',
-                        label: `Workload namespaces (${offenderCount('workloads')})`,
-                      },
-                      { value: 'system', label: `System namespaces (${offenderCount('system')})` },
-                      ...namespaceOptions,
-                    ]}
-                  />
-                )}
-                <Segmented<View>
-                  C={C}
-                  label="Group results"
-                  value={view}
-                  onChange={setView}
-                  options={[
-                    { value: 'policy', label: 'By policy' },
-                    { value: 'resource', label: 'By resource' },
-                  ]}
-                />
-              </div>
+              <Segmented<View>
+                C={C}
+                label="Group results"
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: 'policy', label: 'By policy' },
+                  { value: 'resource', label: 'By resource' },
+                ]}
+              />
             }
           />
           {view === 'policy' ? (
-            <PolicyTable C={C} policies={shownPolicies} />
+            <>
+              <ListToolbar
+                C={C}
+                list={policyList}
+                shown={shownPolicies.length}
+                total={posture.policies.length}
+                noun="policies"
+                onClearFilters={
+                  policyFiltering
+                    ? () => {
+                        setPolicyQuery('');
+                        setStatusChoice('all');
+                        setModeFilter('all');
+                      }
+                    : undefined
+                }
+                sortFields={POLICY_SORT_FIELDS}
+                groupFields={POLICY_GROUP_FIELDS}
+                exportFields={POLICY_EXPORT_FIELDS}
+                exportName="Kyverno policies"
+                filters={
+                  <>
+                    <SearchBox
+                      C={C}
+                      value={policyQuery}
+                      onChange={setPolicyQuery}
+                      placeholder="Filter policies"
+                      width="200px"
+                    />
+                    <FilterSelect
+                      C={C}
+                      value={statusFilter}
+                      onChange={setStatusChoice}
+                      label="Filter policies by result"
+                      options={[
+                        { value: 'all', label: `Any result (${posture.policies.length})` },
+                        ...(['failing', 'passing', 'unevaluated'] as const).map(status => ({
+                          value: status,
+                          label: `${STATUS_LABEL[status]} (${
+                            posture.policies.filter(p => policyStatus(p) === status).length
+                          })`,
+                        })),
+                      ]}
+                    />
+                    <FilterSelect
+                      C={C}
+                      value={modeFilter}
+                      onChange={setModeFilter}
+                      label="Filter policies by mode"
+                      options={[{ value: 'all', label: 'Any mode' }, ...modeOptions]}
+                    />
+                  </>
+                }
+              />
+              {shownPolicies.length === 0 ? (
+                statusFilter === 'failing' && !policyQuery.trim() && modeFilter === 'all' ? (
+                  <Notice C={C} title="No Kyverno policy is failing">
+                    Every policy passed on every resource it checked.
+                  </Notice>
+                ) : (
+                  <Notice C={C} title="No policy matches the current filters">
+                    Clear the filters to see every policy.
+                  </Notice>
+                )
+              ) : (
+                <Grouped
+                  C={C}
+                  list={policyList}
+                  render={rows =>
+                    policyList.view === 'grid' ? (
+                      <div style={CARD_GRID}>
+                        {rows.map(policy => (
+                          <PolicyCard
+                            key={policy.key}
+                            C={C}
+                            policy={policy}
+                            expanded={!!expanded[policy.key]}
+                            onToggle={() =>
+                              setExpanded(e => ({ ...e, [policy.key]: !e[policy.key] }))
+                            }
+                            onOpen={openPolicy ? () => openPolicy(policy) : undefined}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <PolicyTable
+                        C={C}
+                        policies={rows}
+                        sort={policyList.sort}
+                        onSort={policyList.sortBy}
+                        onOpen={openPolicy}
+                      />
+                    )
+                  }
+                />
+              )}
+            </>
           ) : (
-            <ResourceTable C={C} offenders={shownOffenders} empty={empty} />
+            <>
+              <ListToolbar
+                C={C}
+                list={resourceList}
+                shown={shownOffenders.length}
+                total={posture.offenders.length}
+                noun="failing resources"
+                onClearFilters={
+                  resourceFiltering
+                    ? () => {
+                        setResourceQuery('');
+                        setScope('all');
+                      }
+                    : undefined
+                }
+                sortFields={RESOURCE_SORT_FIELDS}
+                groupFields={RESOURCE_GROUP_FIELDS}
+                exportFields={RESOURCE_EXPORT_FIELDS}
+                exportName="Kyverno failing resources"
+                filters={
+                  <>
+                    <SearchBox
+                      C={C}
+                      value={resourceQuery}
+                      onChange={setResourceQuery}
+                      placeholder="Filter resources"
+                      width="200px"
+                    />
+                    <FilterSelect
+                      C={C}
+                      value={scope}
+                      onChange={v => setScope(v as Scope)}
+                      label="Filter failing resources by namespace"
+                      icon={<FolderIcon size={14} stroke={C.textDim} />}
+                      options={[
+                        { value: 'all', label: `All namespaces (${posture.offenders.length})` },
+                        {
+                          value: 'workloads',
+                          label: `Workload namespaces (${offenderCount('workloads')})`,
+                        },
+                        {
+                          value: 'system',
+                          label: `System namespaces (${offenderCount('system')})`,
+                        },
+                        ...namespaceOptions,
+                      ]}
+                    />
+                  </>
+                }
+              />
+              {shownOffenders.length === 0 ? (
+                <ResourceTable C={C} offenders={[]} empty={empty} />
+              ) : (
+                <Grouped
+                  C={C}
+                  list={resourceList}
+                  render={rows =>
+                    resourceList.view === 'grid' ? (
+                      <div style={CARD_GRID}>
+                        {rows.map(entry => (
+                          <ResourceCard
+                            key={entry.resource.key}
+                            C={C}
+                            entry={entry}
+                            onOpen={openResource ? () => openResource(entry) : undefined}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <ResourceTable
+                        C={C}
+                        offenders={rows}
+                        empty={empty}
+                        sort={resourceList.sort}
+                        onSort={resourceList.sortBy}
+                        onOpen={openResource}
+                      />
+                    )
+                  }
+                />
+              )}
+            </>
           )}
         </div>
       </>
@@ -397,8 +684,29 @@ export default function CompliancePolicies() {
   }
 
   return (
-    <EvoPage section="Compliance" title="Policies" summary={summary} actions={actions}>
+    <EvoPage section="Compliance" title="Kyverno Policies" summary={summary} actions={actions}>
       {body}
+
+      <SidePanel
+        C={C}
+        open={!!(panelPolicy || panelResource)}
+        title={panelPolicy?.meta.title ?? panelResource?.resource.name ?? ''}
+        subtitle={
+          panelPolicy
+            ? panelPolicy.ref
+            : panelResource
+            ? `${panelResource.resource.kind} · ${
+                panelResource.resource.namespace ?? 'cluster-scoped'
+              }`
+            : undefined
+        }
+        onClose={closePanel}
+      >
+        <div style={{ padding: '16px' }}>
+          {panelPolicy && <PolicyDetail C={C} policy={panelPolicy} />}
+          {panelResource && <ResourceDetail C={C} entry={panelResource} openPolicy={policyByRef} />}
+        </div>
+      </SidePanel>
     </EvoPage>
   );
 }

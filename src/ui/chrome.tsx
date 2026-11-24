@@ -982,18 +982,22 @@ export function GhostButton({
   children,
   title,
   active = false,
+  ariaLabel,
 }: {
   C: EvoCloudPalette;
   onClick: () => void;
   children: React.ReactNode;
   title?: string;
   active?: boolean;
+  /** For a button whose content is only an icon. */
+  ariaLabel?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
+      aria-label={ariaLabel}
       aria-pressed={active}
       style={{
         display: 'flex',
@@ -1549,6 +1553,89 @@ export interface Column<R> {
 }
 
 /**
+ * A table header that sorts its column when clicked.
+ *
+ * Shared by {@link DataTable} and the hand-built tables (Compliance's controls
+ * and policies), so every sortable header on every page looks and behaves the
+ * same: a faint double arrow when idle, one arrow when it is the sort.
+ */
+export function SortHeader({
+  C,
+  label,
+  active,
+  dir,
+  onClick,
+  align,
+  title,
+}: {
+  C: EvoCloudPalette;
+  label: string;
+  active: boolean;
+  dir: 'asc' | 'desc';
+  onClick: () => void;
+  align?: 'left' | 'right' | 'center';
+  /** Extra explanation of the column, shown before the sort hint. */
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${title ? `${title}. ` : ''}Sort by ${label.toLowerCase()}`}
+      aria-pressed={active}
+      aria-label={
+        active
+          ? `${label}, sorted ${dir === 'asc' ? 'ascending' : 'descending'}`
+          : `Sort by ${label.toLowerCase()}`
+      }
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        justifyContent:
+          align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
+        minWidth: 0,
+        padding: 0,
+        background: 'transparent',
+        border: 0,
+        font: 'inherit',
+        letterSpacing: 'inherit',
+        textTransform: 'inherit',
+        color: active ? C.text : 'inherit',
+        cursor: 'pointer',
+      }}
+    >
+      <span style={CLIP}>{label}</span>
+      <svg
+        width="9"
+        height="9"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+        style={{
+          flex: 'none',
+          opacity: active ? 1 : 0.35,
+          transform: active && dir === 'desc' ? 'rotate(180deg)' : undefined,
+        }}
+      >
+        {active ? (
+          <polyline points="6 15 12 9 18 15" />
+        ) : (
+          <>
+            <polyline points="7 10 12 5 17 10" />
+            <polyline points="7 14 12 19 17 14" />
+          </>
+        )}
+      </svg>
+    </button>
+  );
+}
+
+/**
  * The list-view table from the catalog design, generalised.
  *
  * A CSS grid rather than a `<table>`: the header and every row share one track
@@ -1560,11 +1647,26 @@ export function DataTable<R>({
   columns,
   rows,
   rowKey,
+  sort,
+  onSort,
+  sortable,
+  onRowClick,
+  rowLabel,
 }: {
   C: EvoCloudPalette;
   columns: Column<R>[];
   rows: R[];
   rowKey: (row: R, index: number) => string;
+  /** The current order, to mark its column. */
+  sort?: { key: string; dir: 'asc' | 'desc' };
+  /** Given, the headers of `sortable` columns sort the list when clicked. */
+  onSort?: (key: string) => void;
+  /** Keys of the columns that can be sorted by. */
+  sortable?: string[];
+  /** Given, clicking anywhere on a row opens it (in the side panel). */
+  onRowClick?: (row: R) => void;
+  /** What a row is called, for its tooltip and screen readers: "Open {label}". */
+  rowLabel?: (row: R) => string;
 }) {
   const template = columns.map(c => c.width).join(' ');
 
@@ -1594,16 +1696,32 @@ export function DataTable<R>({
           color: C.textDimmer,
         }}
       >
-        {columns.map(c => (
-          <span key={c.key} style={{ textAlign: c.align ?? 'left' }}>
-            {c.label}
-          </span>
-        ))}
+        {columns.map(c => {
+          if (!onSort || !sortable?.includes(c.key)) {
+            return (
+              <span key={c.key} style={{ textAlign: c.align ?? 'left' }}>
+                {c.label}
+              </span>
+            );
+          }
+          return (
+            <SortHeader
+              key={c.key}
+              C={C}
+              label={c.label}
+              align={c.align}
+              active={sort?.key === c.key}
+              dir={sort?.dir ?? 'asc'}
+              onClick={() => onSort(c.key)}
+            />
+          );
+        })}
       </div>
       {rows.map((row, i) => (
         <div
           key={rowKey(row, i)}
           className="evo-row"
+          {...(onRowClick ? openOnClick(() => onRowClick(row), rowLabel?.(row)) : {})}
           style={{
             display: 'grid',
             gridTemplateColumns: template,
@@ -1612,6 +1730,7 @@ export function DataTable<R>({
             padding: '9px 14px',
             borderBottom: `1px solid ${C.dividerSoft}`,
             transition: 'background 120ms ease',
+            cursor: onRowClick ? 'pointer' : undefined,
           }}
         >
           {columns.map(c => (
@@ -1850,6 +1969,25 @@ export function SidePanel({
   const panelRef = React.useRef<HTMLDivElement>(null);
   const top = useMainTop(open);
 
+  // Give focus back to whatever opened the panel (the row or card) when it
+  // closes, so a keyboard user carries on from where they were instead of
+  // starting again at the top of the page. Keyed on `open` alone: `onClose` is
+  // often a new function every render, and the effect below re-runs with it.
+  // Deferred a tick because the page is still `inert` while cleanups run.
+  React.useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    const opener = document.activeElement as HTMLElement | null;
+    return () => {
+      setTimeout(() => {
+        if (opener && opener !== document.body && document.contains(opener)) {
+          opener.focus({ preventScroll: true });
+        }
+      }, 0);
+    };
+  }, [open]);
+
   React.useEffect(() => {
     if (!open) {
       return undefined;
@@ -1964,6 +2102,46 @@ export function SidePanel({
     </>,
     document.body
   );
+}
+
+/** Whether a click or key press started on something with its own action. */
+function fromInnerControl(e: React.SyntheticEvent): boolean {
+  const target = e.target as HTMLElement | null;
+  const hit = target?.closest?.('a, button, input, select, textarea, label, [role="button"]');
+  return !!hit && hit !== e.currentTarget;
+}
+
+/**
+ * Props that make a whole row or card open its item, the standard for every
+ * list: click anywhere on it, or focus it and press Enter or Space.
+ *
+ * Links, buttons and inputs inside keep their own action — a copy button
+ * copies, an external link opens — so only a click on the row itself opens
+ * the panel. A modified click (ctrl, cmd, shift) is left alone too, so a link
+ * inside can still be opened in a new tab.
+ */
+export function openOnClick(onOpen: () => void, label?: string) {
+  return {
+    role: 'button' as const,
+    tabIndex: 0,
+    title: label ? `Open ${label}` : undefined,
+    'aria-label': label ? `Open ${label}` : undefined,
+    onClick: (e: React.MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || fromInnerControl(e)) {
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+        return;
+      }
+      onOpen();
+    },
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if ((e.key === 'Enter' || e.key === ' ') && !fromInnerControl(e)) {
+        e.preventDefault();
+        onOpen();
+      }
+    },
+  };
 }
 
 /**

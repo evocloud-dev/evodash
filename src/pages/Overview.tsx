@@ -382,7 +382,7 @@ export default function Overview() {
   if (velaInstalled) {
     stats.push(
       {
-        label: 'KubeVela apps',
+        label: 'Delivered apps',
         value: vela.total,
         sub: `${vela.running} running`,
         route: VELA_APPS_ROUTE,
@@ -480,7 +480,7 @@ export default function Overview() {
         route: VELA_APPS_ROUTE,
         // Spelled out here, unlike in the sidebar, where the KubeVela heading
         // above it already supplies the qualifier.
-        title: 'KubeVela Applications',
+        title: 'Delivered Applications',
         blurb: 'What KubeVela has delivered here, and the settings behind every part of it.',
         count: vela.total,
         unit: 'application',
@@ -563,7 +563,7 @@ export default function Overview() {
     }
     SECTIONS.push({
       route: COMPLIANCE_POLICIES_ROUTE,
-      title: 'Compliance Policies',
+      title: 'Kyverno Policies',
       blurb:
         'Which Kyverno policies the resources here pass and fail, and whether they are enforced.',
       count: kyverno.phase === 'ready' ? kyvernoPolicies : null,

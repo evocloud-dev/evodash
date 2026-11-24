@@ -1,5 +1,5 @@
 /**
-* The App Endpoints list view: a header strip and one row per application.
+ * The App Endpoints list view: a header strip and one row per application.
  *
  * Header and rows share {@link COLUMNS} — a single track definition is the only
  * thing keeping them aligned, so they must not be edited apart.
@@ -7,7 +7,16 @@
 import React from 'react';
 import { LINK_LABEL, SOURCE_LABEL } from '../../k8s/publishedApp';
 import { EvoCloudPalette } from '../../palette';
-import { CLIP, CopyButton, MONO, Mono, OpenButton, Pill, RemoteIcon } from '../../ui/chrome';
+import {
+  CLIP,
+  CopyButton,
+  MONO,
+  Mono,
+  OpenButton,
+  openOnClick,
+  Pill,
+  RemoteIcon,
+} from '../../ui/chrome';
 import { AppView, linkTone } from './model';
 
 const COLUMNS =
@@ -25,7 +34,15 @@ const HEADINGS = [
 ];
 
 const LockIcon = ({ open }: { open: boolean }) => (
-  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round">
+  <svg
+    width="10"
+    height="10"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.2"
+    strokeLinejoin="round"
+  >
     <rect x="4" y="10.5" width="16" height="10.5" rx="2" />
     <path d={open ? 'M8.5 10.5V7.5a4 4 0 0 1 7.5-1.9' : 'M8 10.5V7.5a4 4 0 0 1 8 0v3'} />
   </svg>
@@ -38,11 +55,19 @@ export function AppTable({
 }: {
   C: EvoCloudPalette;
   apps: AppView[];
-  /** Given, the application name opens the side panel. */
+  /** Given, clicking anywhere on a row opens the side panel. */
   onOpen?: (app: AppView) => void;
 }) {
   return (
-    <div style={{ border: `1px solid ${C.border}`, borderRadius: '10px', overflow: 'hidden', overflowX: 'auto', background: C.surface }}>
+    <div
+      style={{
+        border: `1px solid ${C.border}`,
+        borderRadius: '10px',
+        overflow: 'hidden',
+        overflowX: 'auto',
+        background: C.surface,
+      }}
+    >
       <div
         style={{
           display: 'grid',
@@ -72,20 +97,13 @@ export function AppTable({
   );
 }
 
-function AppRow({
-  C,
-  app,
-  onOpen,
-}: {
-  C: EvoCloudPalette;
-  app: AppView;
-  onOpen?: () => void;
-}) {
+function AppRow({ C, app, onOpen }: { C: EvoCloudPalette; app: AppView; onOpen?: () => void }) {
   const url = app.link.url;
 
   return (
     <div
       className="evo-row"
+      {...(onOpen ? openOnClick(onOpen, app.name) : {})}
       style={{
         display: 'grid',
         gridTemplateColumns: COLUMNS,
@@ -94,40 +112,24 @@ function AppRow({
         padding: '9px 14px',
         borderBottom: `1px solid ${C.dividerSoft}`,
         transition: 'background 120ms ease',
+        cursor: onOpen ? 'pointer' : undefined,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
         <RemoteIcon C={C} src={app.icon} name={app.name} size={26} />
-        {onOpen ? (
-          <button
-            type="button"
-            onClick={onOpen}
-            title={`Open ${app.name}`}
-            style={{
-              ...CLIP,
-              minWidth: 0,
-              padding: 0,
-              background: 'transparent',
-              border: 0,
-              textAlign: 'left',
-              font: 'inherit',
-              fontSize: '13.5px',
-              fontWeight: 600,
-              color: 'inherit',
-              cursor: 'pointer',
-            }}
-          >
-            {app.name}
-          </button>
-        ) : (
-          <span style={{ ...CLIP, fontSize: '13.5px', fontWeight: 600, minWidth: 0 }}>
-            {app.name}
-          </span>
-        )}
+        {/* The whole row opens the panel; the URL, copy and open keep their own. */}
+        <span style={{ ...CLIP, fontSize: '13.5px', fontWeight: 600, minWidth: 0 }}>
+          {app.name}
+        </span>
       </div>
 
       {url ? (
-        <a href={url} target="_blank" rel="noopener noreferrer" style={{ ...CLIP, fontSize: '12px', fontFamily: MONO, color: C.link }}>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ ...CLIP, fontSize: '12px', fontFamily: MONO, color: C.link }}
+        >
           {url.replace(/^https?:\/\//, '')}
         </a>
       ) : (
@@ -142,9 +144,17 @@ function AppRow({
       <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0 }}>
         <span
           title={app.link.note}
-          style={{ width: '6px', height: '6px', flex: 'none', borderRadius: '50%', background: linkTone(C, app.link.state) }}
+          style={{
+            width: '6px',
+            height: '6px',
+            flex: 'none',
+            borderRadius: '50%',
+            background: linkTone(C, app.link.state),
+          }}
         />
-        <span style={{ ...CLIP, fontSize: '12px', color: C.textMuted }}>{LINK_LABEL[app.link.state]}</span>
+        <span style={{ ...CLIP, fontSize: '12px', color: C.textMuted }}>
+          {LINK_LABEL[app.link.state]}
+        </span>
       </div>
 
       <Mono C={C}>{SOURCE_LABEL[app.source]}</Mono>
@@ -158,7 +168,9 @@ function AppRow({
         <span>{app.restricted ? 'Internal' : 'Public'}</span>
       </Pill>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '2px' }}>
+      <div
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '2px' }}
+      >
         {url && (
           <>
             <CopyButton C={C} value={url} label={app.name} />
