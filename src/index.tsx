@@ -19,6 +19,7 @@ import { registerRoute, registerSidebarEntry } from '@kinvolk/headlamp-plugin/li
 import React from 'react';
 import { EVOCLOUD_ICON_MONO } from './icons/evocloud';
 import AppEndpoints from './pages/AppEndpoints';
+import ClusterHealth from './pages/ClusterHealth';
 import Compliance from './pages/Compliance';
 import { COMPLIANCE_POLICIES_ROUTE } from './pages/compliance/useKyverno';
 import { COMPLIANCE_ROUTE } from './pages/compliance/useScanResults';
@@ -222,4 +223,21 @@ registerRoute({
   name: COMPLIANCE_POLICIES_ROUTE,
   exact: true,
   component: () => <CompliancePolicies />,
+});
+
+// 6c. Cluster Health — KubeBuddy's hygiene checks, run in the browser with
+// nothing installed in the cluster
+registerSidebarEntry({
+  parent: 'evocloud-compliance',
+  name: 'evocloud-compliance-health',
+  label: 'Cluster Health',
+  url: '/evocloud/compliance/health',
+});
+
+registerRoute({
+  path: '/evocloud/compliance/health',
+  sidebar: 'evocloud-compliance-health',
+  name: 'evocloud-compliance-health',
+  exact: true,
+  component: () => <ClusterHealth />,
 });
