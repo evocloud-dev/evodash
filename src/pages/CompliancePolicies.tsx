@@ -43,6 +43,7 @@ import {
   useSidePanelViable,
 } from '../ui/chrome';
 import { ListToolbar, ListView, useListView } from '../ui/listView';
+import { REVEAL_MARGIN, useRevealSection } from '../ui/reveal';
 import { EngineStrip } from './compliance/EngineStrip';
 import { NamespacePanel } from './compliance/NamespacePanel';
 import { PolicyCard } from './compliance/PolicyCard';
@@ -185,7 +186,7 @@ export default function CompliancePolicies() {
   const [policyQuery, setPolicyQuery] = React.useState('');
   const [resourceQuery, setResourceQuery] = React.useState('');
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
-  const resultsRef = React.useRef<HTMLDivElement>(null);
+  const [resultsRef, revealResults] = useRevealSection();
   /**
    * The item in the side panel, by key rather than by value, so the panel
    * re-reads the live posture on every render: results that move while it is
@@ -271,7 +272,12 @@ export default function CompliancePolicies() {
   const showNamespace = (namespace: string | null) => {
     setView('resource');
     setScope(`ns:${namespace ?? ''}`);
-    resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    revealResults();
+  };
+  // By policy and By resource are two different lists: switching brings the new one into view.
+  const switchView = (next: View) => {
+    setView(next);
+    revealResults();
   };
 
   let summary: React.ReactNode;
@@ -478,7 +484,7 @@ export default function CompliancePolicies() {
           </>
         )}
 
-        <div ref={resultsRef} style={{ scrollMarginTop: '16px' }}>
+        <div ref={resultsRef} style={REVEAL_MARGIN}>
           <SectionHeading
             C={C}
             label={view === 'policy' ? 'Kyverno policies' : 'Failing resources'}
@@ -488,7 +494,7 @@ export default function CompliancePolicies() {
                 C={C}
                 label="Group results"
                 value={view}
-                onChange={setView}
+                onChange={switchView}
                 options={[
                   { value: 'policy', label: 'By policy' },
                   { value: 'resource', label: 'By resource' },

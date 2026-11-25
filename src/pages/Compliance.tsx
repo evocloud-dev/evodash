@@ -50,6 +50,7 @@ import {
 } from '../ui/chrome';
 import { SortState } from '../ui/listModel';
 import { ListToolbar, useListView } from '../ui/listView';
+import { REVEAL_MARGIN, useRevealSection } from '../ui/reveal';
 import { ControlCard } from './compliance/ControlCard';
 import { ControlDetail } from './compliance/ControlDetail';
 import {
@@ -574,6 +575,8 @@ export default function Compliance() {
   const [selectedControlID, setSelectedControlID] = React.useState<string | null>(null);
   const panelViable = useSidePanelViable();
   const closePanel = React.useCallback(() => setSelectedControlID(null), []);
+  // Picking a framework swaps the controls list below the cards: bring it into view.
+  const [controlsRef, revealControls] = useRevealSection();
 
   const resources = snapshot?.resources ?? [];
   const frameworks = React.useMemo(() => scoreAllFrameworks(resources), [resources]);
@@ -753,19 +756,22 @@ export default function Compliance() {
               onSelect={() => {
                 setSelected(fs.framework.name);
                 setSelectedControlID(null);
+                revealControls();
               }}
             />
           ))}
         </div>
 
-        {current && (
-          <ControlTable
-            key={current.framework.name}
-            C={C}
-            fs={current}
-            onOpen={panelViable ? control => setSelectedControlID(control.controlID) : undefined}
-          />
-        )}
+        <div ref={controlsRef} style={REVEAL_MARGIN}>
+          {current && (
+            <ControlTable
+              key={current.framework.name}
+              C={C}
+              fs={current}
+              onOpen={panelViable ? control => setSelectedControlID(control.controlID) : undefined}
+            />
+          )}
+        </div>
       </>
     );
   }

@@ -38,6 +38,7 @@ import {
   SearchBox,
   usePalette,
 } from '../ui/chrome';
+import { revealSection } from '../ui/reveal';
 import { buildSchemaViews, countTree, pruneFields, versionsOf } from './crdSchemas/model';
 import { CRD_SCHEMAS_ROUTE, schemaURL } from './crdSchemas/routes';
 import { SchemaTree } from './crdSchemas/SchemaTree';
@@ -129,8 +130,7 @@ export default function CrdSchemaDetail({
     if (!showRaw || !rawRef.current) {
       return;
     }
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    rawRef.current.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+    revealSection(rawRef.current);
   }, [showRaw]);
 
   const isOpen = (path: string) => openPaths[path] ?? (searching || expandedByDefault);
@@ -300,18 +300,18 @@ export default function CrdSchemaDetail({
       <SearchBox C={C} value={q} onChange={setQ} placeholder="Filter fields" />
       {versions.length > 1 && (
         <FilterSelect
-                C={C}
-                value={schema.version}
-                onChange={v =>
-                  onVersionChange ? onVersionChange(v) : history.push(schemaURL(schema.crdName, v))
-                }
-                label="Schema version"
-                options={versions.map(v => ({
-                  value: v.version,
-                  label: v.storage ? `${v.version} (storage)` : v.version,
-                }))}
-              />
-            )}
+          C={C}
+          value={schema.version}
+          onChange={v =>
+            onVersionChange ? onVersionChange(v) : history.push(schemaURL(schema.crdName, v))
+          }
+          label="Schema version"
+          options={versions.map(v => ({
+            value: v.version,
+            label: v.storage ? `${v.version} (storage)` : v.version,
+          }))}
+        />
+      )}
       <GhostButton C={C} onClick={() => setAll(true)} title="Open every field">
         Expand all
       </GhostButton>
